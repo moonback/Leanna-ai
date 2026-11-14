@@ -1,8 +1,16 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Calendar, CheckSquare, Rocket, ShieldCheck } from 'lucide-react';
-import { EmptyState } from '@/components/EmptyState';
-import { fetchActivity, fetchMissions, fetchPendingApprovals } from '@/lib/api';
+import {
+  fetchActivity,
+  fetchEvents,
+  fetchMissions,
+  fetchPendingApprovals,
+  fetchTasks,
+} from '@/lib/api';
+import { addDays, dateTime, dayLabel, timeLabel } from '@/lib/dates';
+import { cn } from '@/lib/utils';
+import { PriorityBadge } from './TasksPage';
 import { useMe } from '@/lib/useMe';
 import { StatusBadge } from './MissionsPage';
 
@@ -97,7 +105,67 @@ function ActivityPanel() {
   );
 }
 
-// Only real data: modules without a data source yet show an honest empty state.
+function TasksPanel() {
+  const tasks = useQuery({
+    queryKey: ['tasks', 'open', ''],
+    queryFn: ({ signal }) => fetchTasks({ status: 'open' }, signal),
+  });
+  const now = new Date();
+  return (
+    <Panel icon={CheckSquare} title="Tâches prioritaires" link={{ to: '/tasks', label: 'Toutes' }}>
+      {tasks.isPending && <p className="text-ink-muted">Chargement…</p>}
+      {tasks.isError && <p className="text-ink-muted">Tâches indisponibles.</p>}
+      {tasks.data?.length === 0 && <p className="text-ink-muted">Aucune tâche ouverte.</p>}
+      <ul className="space-y-1.5">
+        {tasks.data?.slice(0, 5).map((t) => {
+          const late = t.due_at && new Date(t.due_at) < now;
+          return (
+            <li key={t.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate">{t.title}</span>
+              {t.due_at && (
+                <span className={cn('shrink-0 text-xs', late ? 'text-danger' : 'text-ink-faint')}>
+                  {dateTime.format(new Date(t.due_at))}
+                </span>
+              )}
+              <PriorityBadge priority={t.priority} />
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
+  );
+}
+
+function AgendaPanel() {
+  const today = new Date(new Date().setHours(0, 0, 0, 0));
+  const events = useQuery({
+    queryKey: ['events', 'upcoming'],
+    queryFn: ({ signal }) =>
+      fetchEvents({ from: new Date().toISOString(), to: addDays(today, 7).toISOString() }, signal),
+  });
+  return (
+    <Panel icon={Calendar} title="Agenda" link={{ to: '/calendar', label: 'Calendrier' }}>
+      {events.isPending && <p className="text-ink-muted">Chargement…</p>}
+      {events.isError && <p className="text-ink-muted">Agenda indisponible.</p>}
+      {events.data?.length === 0 && (
+        <p className="text-ink-muted">Aucun événement dans les 7 prochains jours.</p>
+      )}
+      <ul className="space-y-1.5">
+        {events.data?.slice(0, 5).map((e) => (
+          <li key={e.id} className="flex gap-2">
+            <span className="w-36 shrink-0 text-xs capitalize text-cyan">
+              {dayLabel.format(new Date(e.starts_at))}
+              {!e.all_day && ` ${timeLabel.format(new Date(e.starts_at))}`}
+            </span>
+            <span className="min-w-0 truncate">{e.title}</span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+// Only real data, never placeholders.
 export function DashboardPage() {
   const name = useMe().data?.profile.display_name;
   return (
@@ -119,18 +187,8 @@ export function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <MissionsPanel />
-        <EmptyState
-          icon={CheckSquare}
-          title="Tâches prioritaires"
-          message="Aucune tâche."
-          hint="Le gestionnaire de tâches arrive en phase 7."
-        />
-        <EmptyState
-          icon={Calendar}
-          title="Agenda"
-          message="Aucun événement à venir."
-          hint="Le calendrier arrive en phase 7."
-        />
+        <TasksPanel />
+        <AgendaPanel />
         <ActivityPanel />
       </div>
     </div>

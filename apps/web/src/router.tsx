@@ -7,6 +7,10 @@ import { AssistantPage } from './pages/AssistantPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { MissionsPage } from './pages/MissionsPage';
 import { AgentsPage } from './pages/AgentsPage';
+import { TasksPage } from './pages/TasksPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { DocumentsPage } from './pages/DocumentsPage';
+import { CalendarPage } from './pages/CalendarPage';
 import { ActivityPage, NotificationsPage } from './pages/ActivityPages';
 import { LoginPage, SignupPage } from './pages/AuthPages';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -26,6 +30,11 @@ export const routes: RouteObject[] = [
           { path: 'assistant/:id', element: <AssistantPage /> },
           { path: 'memory', element: <MemoryPage /> },
           { path: 'agents', element: <AgentsPage /> },
+          { path: 'tasks', element: <TasksPage /> },
+          { path: 'projects', element: <ProjectsPage /> },
+          { path: 'documents', element: <DocumentsPage /> },
+          { path: 'documents/:id', element: <DocumentsPage /> },
+          { path: 'calendar', element: <CalendarPage /> },
           { path: 'missions', element: <MissionsPage /> },
           { path: 'missions/:id', element: <MissionsPage /> },
           { path: 'activity', element: <ActivityPage /> },

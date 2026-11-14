@@ -284,6 +284,106 @@ export const markNotificationsRead = (body: { ids: string[] } | { all: true }) =
     body: JSON.stringify(body),
   });
 
+// ---------------------------------------------------------------- workspace data
+
+export type Project = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  status: 'active' | 'archived';
+  created_at: string;
+  updated_at: string;
+};
+export type TaskStatus = 'todo' | 'in_progress' | 'done';
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type Task = {
+  id: string;
+  workspace_id: string;
+  project_id: string | null;
+  title: string;
+  notes: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type DocumentSummary = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  excerpt?: string;
+  snippet?: string;
+  length?: number;
+  updated_at: string;
+};
+export type Doc = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+export type CalendarEvent = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  description: string | null;
+  location: string | null;
+  starts_at: string;
+  ends_at: string;
+  all_day: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+const qs = (params: Record<string, string | undefined>) => {
+  const q = new URLSearchParams(
+    Object.entries(params).filter((e): e is [string, string] => !!e[1]),
+  ).toString();
+  return q ? `?${q}` : '';
+};
+const send = <T>(method: string, path: string, body?: unknown) =>
+  apiFetch<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+
+export const fetchProjects = (
+  status: 'active' | 'archived' | 'all' = 'active',
+  signal?: AbortSignal,
+) => apiFetch<Project[]>(`/projects${qs({ status })}`, { signal });
+export const createProject = (body: Partial<Project>) => send<Project>('POST', '/projects', body);
+export const updateProject = (id: string, patch: Partial<Project>) =>
+  send<Project>('PATCH', `/projects/${id}`, patch);
+export const deleteProject = (id: string) => send<void>('DELETE', `/projects/${id}`);
+
+export const fetchTasks = (
+  params: { status?: string; project_id?: string; due_before?: string; limit?: string },
+  signal?: AbortSignal,
+) => apiFetch<Task[]>(`/tasks${qs(params)}`, { signal });
+export const createTask = (body: Partial<Task>) => send<Task>('POST', '/tasks', body);
+export const updateTask = (id: string, patch: Partial<Task>) =>
+  send<Task>('PATCH', `/tasks/${id}`, patch);
+export const deleteTask = (id: string) => send<void>('DELETE', `/tasks/${id}`);
+
+export const fetchDocuments = (params: { q?: string; project_id?: string }, signal?: AbortSignal) =>
+  apiFetch<DocumentSummary[]>(`/documents${qs(params)}`, { signal });
+export const fetchDocument = (id: string, signal?: AbortSignal) =>
+  apiFetch<Doc>(`/documents/${id}`, { signal });
+export const createDocument = (body: Partial<Doc>) => send<Doc>('POST', '/documents', body);
+export const updateDocument = (id: string, patch: Partial<Doc>) =>
+  send<Doc>('PATCH', `/documents/${id}`, patch);
+export const deleteDocument = (id: string) => send<void>('DELETE', `/documents/${id}`);
+
+export const fetchEvents = (range: { from?: string; to?: string }, signal?: AbortSignal) =>
+  apiFetch<CalendarEvent[]>(`/events${qs(range)}`, { signal });
+export const createEvent = (body: Partial<CalendarEvent>) =>
+  send<CalendarEvent>('POST', '/events', body);
+export const updateEvent = (id: string, patch: Partial<CalendarEvent>) =>
+  send<CalendarEvent>('PATCH', `/events/${id}`, patch);
+export const deleteEvent = (id: string) => send<void>('DELETE', `/events/${id}`);
+
 /** Sends a message and reports each Server-Sent Event as it arrives. */
 export async function streamMessage(
   conversationId: string,

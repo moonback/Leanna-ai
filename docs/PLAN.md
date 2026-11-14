@@ -93,3 +93,15 @@
 - [x] E2E Playwright Agent Studio (desktop + mobile, stack réelle)
 - [ ] **Preuve réelle** : agent avec un vrai fournisseur IA (aucune clé disponible)
 - [ ] Agents dans l'Assistant (aujourd'hui : missions uniquement)
+
+## Checklist Phase 7
+
+- [x] Migration `workspace_data` : projets, tâches, documents (plein texte), événements ; données partagées par les membres d'un espace (RLS), créateur imposé, liens de projet limités à l'espace, `completed_at` par trigger, contraintes de valeurs et de durée
+- [x] **Preuve** : pgTAP `workspace_data.test.sql` (32 assertions : partage entre membres, isolation entre espaces, contraintes, recherche, et 7 outils d'agents limités à l'espace de la mission et à un appel en cours)
+- [x] API : CRUD par une fabrique commune (refus de la base traduits en 400/403), tri échéance puis urgence, recherche avec extraits, chevauchement de plage pour l'agenda
+- [x] Registre d'outils : 7 nouveaux outils (12 au total), identiques au catalogue SQL
+- [x] **Preuve** : tests d'intégration (CRUD, validation, isolation, recherche, plages, un agent qui organise l'espace de travail dans une vraie mission)
+- [x] Web : Tâches, Projets, Documents (éditeur, alerte de modifications non enregistrées), Calendrier (semaine) ; tableau de bord avec tâches et agenda réels
+- [x] **Preuve** : E2E Playwright CRUD (desktop + mobile, stack réelle) : projets et tâches, documents, calendrier, persistance après rechargement
+- [ ] Vue mois, récurrence, rappels ; modification d'un événement dans l'interface
+- [ ] Invitations dans un espace (les règles de partage sont prêtes)

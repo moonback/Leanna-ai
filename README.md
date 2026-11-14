@@ -5,16 +5,15 @@ Assistant personnel agentique (SaaS web). Monorepo pnpm : `apps/web` (React/Vite
 - Diagnostic initial et risques : [docs/DIAGNOSTIC.md](docs/DIAGNOSTIC.md)
 - Roadmap et définition de « terminé » par phase : [docs/PLAN.md](docs/PLAN.md)
 
-## État actuel — Phase 6 (Agent Studio et outils)
+## État actuel — Phase 7 (tâches, projets, documents, calendrier)
 
-| Disponible                                                                                                      | Pas encore disponible                                        |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Agent Studio** : agents personnalisés (consignes, outils autorisés, écriture avec ou sans validation)         | Outils externes (e-mail, web, agenda…) : connecteurs Phase 8 |
-| **Registre d'outils typés** : date/heure, calculatrice, recherche/ajout/oubli dans la mémoire                   | Tâches, projets, documents, calendrier (Phase 7)             |
-| Missions avec agent : appels d'outils vérifiés par la base, validation avant chaque écriture, refus enregistrés | Pièces jointes / multimodal, rendu Markdown                  |
-| Missions : plan validé, étapes en arrière-plan (BullMQ), reprise après crash, journal d'activité, notifications | Invitations, gestion des membres, mot de passe oublié        |
-| Assistant (Gemini ou OpenRouter) avec Mémoire (rappel hybride, contradictions) et Context Engine                | Autres modules (affichés « Bientôt », non cliquables)        |
-| AI Gateway : liste blanche, timeout, nouvelles tentatives, quota quotidien ; inscription, isolation par RLS     |                                                              |
+| Disponible                                                                                                     | Pas encore disponible                                          |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Tâches** (priorité, échéance, retard, projet), **Projets** (archivage), **Documents** (éditeur, recherche)   | Connecteurs externes : e-mail, agenda Google… (Phase 8)        |
+| **Calendrier** : vue semaine, événements sur plusieurs jours ; tableau de bord avec tâches et agenda réels     | Vue mois, événements récurrents, rappels                       |
+| Agents : 12 outils typés, dont tâches, agenda et documents ; permissions et validations appliquées par la base | Invitations dans un espace de travail (données déjà partagées) |
+| Missions (plan validé, worker BullMQ, reprise après crash), journal d'activité, notifications                  | Pièces jointes / multimodal, rendu Markdown                    |
+| Assistant (Gemini ou OpenRouter) avec Mémoire et Context Engine ; quota quotidien ; isolation par RLS          | Autres modules (affichés « Bientôt », non cliquables)          |
 
 ## Prérequis
 
@@ -116,6 +115,7 @@ apps/api   src/plugins/auth.ts  vérifie le JWT (getClaims), crée un client Sup
            src/missions/      engine.ts (Mission Engine + boucle d'outils), plan.ts (prompts), queue.ts, worker.ts
            src/tools/         registry.ts (outils typés : schéma zod, risque, implémentation), protocol.ts, calculator.ts
            src/modules/agents.ts         /tools, /agents (Agent Studio)
+           src/modules/workspace-data.ts /projects, /tasks, /documents, /events (CRUD partagé par espace)
            src/worker.ts      processus worker (rôle Postgres leana_worker)
 supabase/  migrations/        schéma versionné ; tests/database/  pgTAP
 ```
@@ -154,6 +154,12 @@ supabase/  migrations/        schéma versionné ; tests/database/  pgTAP
 - **Audit** : tout est enregistré dans `tool_calls`, y compris les appels refusés (outil non autorisé ou inconnu), les entrées invalides et les refus de l'utilisateur. Le journal d'activité reçoit les refus et les écritures.
 - **Validations d'outils** : un outil qui attend une validation met l'étape en pause. À la reprise, les appels précédents sont rejoués au modèle. Refuser un outil n'annule pas la mission : l'agent termine sans lui. Les pauses ne comptent pas comme des incidents : seuls les crashs et les pannes rapprochent une étape de `MISSION_MAX_ATTEMPTS`.
 
+**Tâches, projets, documents, calendrier** :
+
+- **Partagés dans l'espace de travail** : contrairement aux conversations, mémoires et missions, qui sont privées, ces données sont lisibles et modifiables par tous les membres de l'espace. Le créateur est enregistré et ne peut pas être usurpé. Un élément ne peut ni changer d'espace ni pointer vers le projet d'un autre espace (trigger). Supprimer un projet conserve ses tâches et documents.
+- **Règles en base** : priorités et statuts fixés, `completed_at` posé et effacé par trigger, un événement ne finit pas avant de commencer et dure au plus un an, documents limités à 100 000 caractères. La recherche plein texte réutilise la configuration française sans accents de la Mémoire ; les extraits surlignés sont affichés en texte brut.
+- **Outils d'agents** : `tasks.list/create/complete`, `calendar.list/create`, `documents.search/create`. Ils agissent dans l'espace de **la mission**, seulement pendant un appel en cours et tant que l'utilisateur en est membre. Ce qu'ils créent est attribué au propriétaire de la mission.
+
 - **Validation** : l'API valide avec zod, mais un client peut appeler PostgREST directement avec son JWT. La base reste donc la barrière finale : contraintes `check`, trigger de validation du fuseau horaire, colonnes modifiables restreintes par `GRANT`.
 - **Isolation** : toutes les tables `public` ont la RLS activée et des `GRANT` explicites. `anon` n'a aucun accès. L'API n'a pas de clé privilégiée : chaque requête passe par la RLS avec le JWT de l'appelant.
 - **Fonctions privilégiées** : les helpers `security definer` sont dans le schéma `private`, non exposé par l'API Data, et ne vérifient que `auth.uid()`.
@@ -189,3 +195,5 @@ supabase/  migrations/        schéma versionné ; tests/database/  pgTAP
 - **Agents non testés avec un vrai modèle** : le respect du protocole JSON par Gemini et OpenRouter n'est pas mesuré. Une réponse hors protocole est traitée comme la réponse finale de l'étape, jamais comme un appel d'outil.
 - Aucun outil `sensitive` n'existe encore : la règle « validation toujours requise » est prouvée en base avec un outil de test, et servira aux connecteurs (Phase 8).
 - Les agents ne sont utilisables que dans les missions, pas encore dans l'Assistant.
+- Calendrier : vue semaine uniquement, pas d'événements récurrents ni de rappels ; un événement se supprime mais ne se modifie pas encore depuis l'interface (l'API `PATCH /events/:id` existe).
+- Les filtres de la page Tâches ne sont pas conservés dans l'URL : seul le lien « tâches d'un projet » l'est.
