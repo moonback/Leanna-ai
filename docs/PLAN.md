@@ -67,3 +67,17 @@
 - [x] E2E Playwright Mémoire (desktop + mobile, stack réelle, sans IA)
 - [ ] **Calibrage réel** : seuil `MEMORY_MAX_DISTANCE` et qualité d'extraction à mesurer avec une clé Gemini / OpenRouter
 - [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)
+
+## Checklist Phase 5
+
+- [x] Migration `missions` : missions, étapes, validations, journal d'activité, notifications ; rôle `leana_worker` (sans `BYPASSRLS`, droits par colonne) ; machine à états en trigger ; journal et notifications écrits par triggers uniquement
+- [x] **Preuve** : pgTAP `missions.test.sql` (37 assertions : isolation, droits utilisateur vs worker, transitions interdites, décision unique, écriture « zombie » refusée, journal infalsifiable) — `supabase db advisors` sans alerte
+- [x] Mission Engine : planification, validation du plan, étapes ordonnées, validation par étape, quota, liste blanche des modèles, erreurs définitives vs transitoires
+- [x] Worker BullMQ : un seul processeur par mission (verrou consultatif), tentatives clôturées, reprise des jobs abandonnés, balayage des missions orphelines, arrêt propre
+- [x] API : `/missions` (+ annulation), `/approvals` (+ décision), `/activity`, `/notifications` (+ lu)
+- [x] **Preuve** : tests d'intégration contre Redis + Postgres réels : cycle complet, refus, annulation pendant une étape, panne transitoire puis reprise, erreur fatale, plan inexploitable, **crash d'un worker en pleine étape** (reprise en tentative 2, écriture tardive refusée), job perdu rattrapé
+- [x] Web : Missions (création, suivi en direct, validations, arrêt), Activité, Notifications (badge), tableau de bord avec données réelles
+- [x] E2E Playwright (desktop + mobile, sans clé IA : état « non configuré »)
+- [ ] **Preuve réelle** : mission de bout en bout avec un vrai fournisseur IA (aucune clé disponible)
+- [ ] Notifications en temps réel (Supabase Realtime ou SSE) au lieu du rafraîchissement périodique
+- [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)

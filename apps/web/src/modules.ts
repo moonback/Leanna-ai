@@ -30,7 +30,7 @@ export type AppModule = {
 export const MODULES: AppModule[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, phase: null },
   { label: 'Assistant', path: '/assistant', icon: MessageSquare, phase: null },
-  { label: 'Missions', path: '/missions', icon: Rocket, phase: 5 },
+  { label: 'Missions', path: '/missions', icon: Rocket, phase: null },
   { label: 'Mémoire', path: '/memory', icon: Brain, phase: null },
   { label: 'Agent Studio', path: '/agents', icon: Bot, phase: 6 },
   { label: 'Tâches', path: '/tasks', icon: CheckSquare, phase: 7 },
@@ -41,7 +41,7 @@ export const MODULES: AppModule[] = [
   { label: 'Automatisations', path: '/automations', icon: Workflow, phase: 8 },
   { label: 'Web Intelligence', path: '/web', icon: Globe, phase: 8 },
   { label: 'Connecteurs', path: '/connectors', icon: Plug, phase: 8 },
-  { label: 'Notifications', path: '/notifications', icon: Bell, phase: 5 },
-  { label: 'Activité', path: '/activity', icon: Activity, phase: 5 },
+  { label: 'Notifications', path: '/notifications', icon: Bell, phase: null },
+  { label: 'Activité', path: '/activity', icon: Activity, phase: null },
   { label: 'Paramètres', path: '/settings', icon: Settings, phase: null },
 ];

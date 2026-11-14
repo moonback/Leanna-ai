@@ -59,7 +59,8 @@ select throws_ok($$ insert into public.activity (user_id, kind, summary)
 -- ---- the worker plans
 reset role;
 set local role leana_worker;
-select is((select count(*)::int from public.missions), 3, 'the worker sees every mission');
+select is((select count(*)::int from public.missions m join ids on m.workspace_id in (ids.alice_ws, ids.bob_ws)), 3,
+  'the worker sees every user''s missions');
 select lives_ok($$
   insert into public.mission_steps (mission_id, user_id, position, title, instruction, requires_approval)
   select pg_temp.mission('Rome'), 'aaaaaaaa-0000-0000-0000-0000000000a5', p, t, t, p = 2
@@ -78,7 +79,7 @@ select throws_ok($$ insert into public.approvals (mission_id, user_id, kind, sum
   '23505', null, 'the plan is approved only once');
 select throws_ok($$ update public.missions set status = 'completed' where id = pg_temp.mission('Rome') $$,
   '23514', null, 'the state machine forbids skipping execution');
-select throws_ok($$ update public.approvals set status = 'approved' $$,
+select throws_ok($$ update public.approvals set status = 'approved' where mission_id = pg_temp.mission('Rome') $$,
   '42501', null, 'the worker cannot decide in the user''s place');
 select throws_ok($$ select * from public.memories $$, '42501', null,
   'the worker cannot read memories');
@@ -106,15 +107,15 @@ reset role;
 set local role leana_worker;
 update public.missions set status = 'running' where id = pg_temp.mission('Rome');
 update public.mission_steps set status = 'running', attempt = 1, lease_until = now() + interval '1 minute'
-  where position = 1;
+  where mission_id = pg_temp.mission('Rome') and position = 1;
 -- a crash, then another worker reclaims the step with a new attempt
-update public.mission_steps set attempt = 2 where position = 1;
+update public.mission_steps set attempt = 2 where mission_id = pg_temp.mission('Rome') and position = 1;
 update public.mission_steps set status = 'done', output = 'Vols trouvés', finished_at = now()
-  where position = 1 and attempt = 2;
-select is((select output from public.mission_steps where position = 1), 'Vols trouvés',
+  where mission_id = pg_temp.mission('Rome') and position = 1 and attempt = 2;
+select is((select output from public.mission_steps where mission_id = pg_temp.mission('Rome') and position = 1), 'Vols trouvés',
   'the current attempt completes the step');
 select is_empty($$ update public.mission_steps set output = 'zombie'
-                   where position = 1 and attempt = 1 and status = 'running' returning id $$,
+                   where mission_id = pg_temp.mission('Rome') and position = 1 and attempt = 1 and status = 'running' returning id $$,
   'a stale attempt can no longer write');
 update public.missions set status = 'completed', result = 'Voyage prêt' where id = pg_temp.mission('Rome');
 select isnt((select finished_at from public.missions where id = pg_temp.mission('Rome')), null,
