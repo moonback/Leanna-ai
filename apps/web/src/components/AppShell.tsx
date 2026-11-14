@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { Menu, Sparkles, X } from 'lucide-react';
+import { LogOut, Menu, Sparkles, X } from 'lucide-react';
 import { MODULES } from '@/modules';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
+import { useMe } from '@/lib/useMe';
+import { useAuth } from '@/auth/AuthProvider';
 import { ApiStatus } from './ApiStatus';
 
 function Brand() {
@@ -55,6 +58,27 @@ function Nav() {
         ))}
       </ul>
     </nav>
+  );
+}
+
+function UserMenu() {
+  const { session } = useAuth();
+  const me = useMe();
+  const name = me.data?.profile.display_name || session?.user.email;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="hidden max-w-40 truncate text-sm text-ink-muted sm:inline">{name}</span>
+      <button
+        type="button"
+        onClick={() => supabase.auth.signOut()}
+        className="glass p-2 text-ink-muted hover:text-ink"
+        aria-label="Se déconnecter"
+        title="Se déconnecter"
+      >
+        <LogOut className="size-4" />
+      </button>
+    </div>
   );
 }
 
@@ -123,8 +147,9 @@ export function AppShell() {
           >
             <Menu className="size-4" />
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
             <ApiStatus />
+            <UserMenu />
           </div>
         </header>
         <main className="flex-1 px-4 py-6 md:px-6">

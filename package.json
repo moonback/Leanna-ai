@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:db": "supabase test db",
     "build": "pnpm -r build",
     "e2e": "pnpm --filter @leana/web e2e"
   },

@@ -43,5 +43,5 @@ export const MODULES: AppModule[] = [
   { label: 'Connecteurs', path: '/connectors', icon: Plug, phase: 8 },
   { label: 'Notifications', path: '/notifications', icon: Bell, phase: 5 },
   { label: 'Activité', path: '/activity', icon: Activity, phase: 5 },
-  { label: 'Paramètres', path: '/settings', icon: Settings, phase: 2 },
+  { label: 'Paramètres', path: '/settings', icon: Settings, phase: null },
 ];

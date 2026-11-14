@@ -6,6 +6,9 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   // Comma-separated list of allowed browser origins.
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
+  SUPABASE_URL: z.url(),
+  // Publishable (public) key: the API acts with the caller's JWT, so RLS always applies.
+  SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
