@@ -82,12 +82,14 @@ export function sseResponse(chunks: string[]) {
 /** Routes fetch calls to a fake API; override individual endpoints per test. */
 export function mockApi(overrides: Record<string, () => Promise<Response>> = {}) {
   const handlers: Record<string, () => Promise<Response>> = {
-    'GET /health': () => json({ status: 'ok', version: '0.5.0', uptimeSeconds: 1 }),
+    'GET /health': () => json({ status: 'ok', version: '0.6.0', uptimeSeconds: 1 }),
     'GET /me': () => json(ME),
     'GET /ai/config': () => json(AI_CONFIG),
     'GET /conversations': () => json([]),
     'GET /missions/config': () => json({ configured: true }),
     'GET /missions': () => json([]),
+    'GET /agents': () => json([]),
+    'GET /tools': () => json([]),
     'GET /approvals': () => json([]),
     'GET /activity': () => json([]),
     'GET /notifications': () => json({ items: [], unread: 0 }),

@@ -13,6 +13,7 @@ import { createBackground } from './background.js';
 import { createMemoryService } from './memory/service.js';
 import { memoryRoutes } from './modules/memories.js';
 import { missionRoutes } from './modules/missions.js';
+import { agentRoutes } from './modules/agents.js';
 import { createMissionQueue } from './missions/queue.js';
 
 declare module 'fastify' {
@@ -66,7 +67,7 @@ export async function buildApp(
 
   await app.register(swagger, {
     openapi: {
-      info: { title: 'LEANA AI API', version: '0.5.0' },
+      info: { title: 'LEANA AI API', version: '0.6.0' },
       components: {
         securitySchemes: { bearer: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
       },
@@ -97,7 +98,7 @@ export async function buildApp(
     },
     async () => ({
       status: 'ok' as const,
-      version: '0.5.0',
+      version: '0.6.0',
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     }),
   );
@@ -108,6 +109,7 @@ export async function buildApp(
   if (queue) app.addHook('onClose', () => queue.close());
 
   await app.register(memoryRoutes, { memory });
+  await app.register(agentRoutes, { gateway });
   await app.register(missionRoutes, {
     gateway,
     queue,

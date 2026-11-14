@@ -20,7 +20,9 @@ import {
   fetchMission,
   fetchMissions,
   fetchMissionsConfig,
+  fetchAgents,
   type Approval,
+  type ToolCall,
   type MissionDetail,
   type MissionStatus,
   type MissionStep,
@@ -89,6 +91,8 @@ function NewMission({ configured }: { configured: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [goal, setGoal] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const agents = useQuery({ queryKey: ['agents'], queryFn: ({ signal }) => fetchAgents(signal) });
   const mutation = useMutation({
     mutationFn: createMission,
     onSuccess: async (mission) => {
@@ -99,7 +103,7 @@ function NewMission({ configured }: { configured: boolean }) {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (goal.trim()) mutation.mutate(goal.trim());
+    if (goal.trim()) mutation.mutate({ goal: goal.trim(), agent_id: agentId || null });
   }
 
   return (
@@ -120,10 +124,33 @@ function NewMission({ configured }: { configured: boolean }) {
         placeholder="Ex. : Prépare un plan de révision de 4 semaines pour mon examen de comptabilité, avec un e-mail à envoyer à mon groupe d’étude."
         className="w-full resize-y rounded-lg border border-white/10 bg-night-950/60 px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-cyan/60 focus:outline-none disabled:opacity-50"
       />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label htmlFor="mission-agent" className="text-xs text-ink-muted">
+          Agent
+        </label>
+        <select
+          id="mission-agent"
+          value={agentId}
+          disabled={!configured}
+          onChange={(e) => setAgentId(e.target.value)}
+          className="rounded-lg border border-white/10 bg-night-950/60 px-3 py-2 text-sm text-ink focus:border-cyan/60 focus:outline-none sm:w-64"
+        >
+          <option value="">LEANA, sans outil</option>
+          {agents.data?.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+              {a.tools.length ? ` (${a.tools.length} outil${a.tools.length > 1 ? 's' : ''})` : ''}
+            </option>
+          ))}
+        </select>
+        <Link to="/agents" className="text-xs text-cyan hover:underline">
+          Gérer les agents
+        </Link>
+      </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-ink-faint">
-          LEANA propose un plan, vous le validez, elle l’exécute. Les étapes qui vous engagent
-          attendent votre accord.
+          LEANA propose un plan, vous le validez, elle l’exécute. Les étapes et les écritures qui
+          vous engagent attendent votre accord.
         </p>
         <button
           type="submit"
@@ -223,13 +250,19 @@ function ApprovalCard({ approval, mission }: { approval: Approval; mission: Miss
     >
       <h2 className="flex items-center gap-2 text-sm font-medium text-warning">
         <ShieldCheck className="size-4" aria-hidden />
-        {approval.kind === 'plan' ? 'Valider le plan' : 'Valider cette étape'}
+        {approval.kind === 'plan'
+          ? 'Valider le plan'
+          : approval.kind === 'tool'
+            ? 'Autoriser cet outil'
+            : 'Valider cette étape'}
       </h2>
       <p className="mt-1 text-sm">{approval.summary}</p>
       <p className="mt-1 text-xs text-ink-muted">
         {approval.kind === 'plan'
           ? 'Rien n’est exécuté avant votre accord. Refuser annule la mission.'
-          : `LEANA va réaliser : ${step?.instruction ?? approval.summary}. Refuser annule la mission.`}
+          : approval.kind === 'tool'
+            ? 'L’agent attend votre accord pour cette action. Refuser ne l’exécute pas : la mission continue sans elle.'
+            : `LEANA va réaliser : ${step?.instruction ?? approval.summary}. Refuser annule la mission.`}
       </p>
       <div className="mt-3 flex gap-2">
         <button
@@ -251,6 +284,40 @@ function ApprovalCard({ approval, mission }: { approval: Approval; mission: Miss
       </div>
       <FormError message={mutation.error ? errorMessage(mutation.error) : null} />
     </section>
+  );
+}
+
+const CALL_LABELS: Record<ToolCall['status'], string> = {
+  denied: 'refusé (non autorisé)',
+  pending_approval: 'attend votre accord',
+  rejected: 'refusé par vous',
+  running: 'en cours',
+  succeeded: 'fait',
+  failed: 'échec',
+};
+
+/** What an agent did during a step: every tool call, including refused ones. */
+function ToolCalls({ calls }: { calls: ToolCall[] }) {
+  if (!calls.length) return null;
+  return (
+    <ul className="mt-1.5 space-y-1" aria-label="Appels d’outils">
+      {calls.map((c) => (
+        <li key={c.id} className="text-xs">
+          <span className="font-mono text-ink-muted">{c.tool}</span>{' '}
+          <span
+            className={cn(
+              c.status === 'succeeded' && 'text-success',
+              (c.status === 'denied' || c.status === 'failed' || c.status === 'rejected') &&
+                'text-danger',
+              c.status === 'pending_approval' && 'text-warning',
+            )}
+          >
+            {CALL_LABELS[c.status]}
+          </span>
+          {c.error && c.status === 'failed' && <span className="text-ink-faint"> — {c.error}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -290,6 +357,14 @@ function MissionView({ id }: { id: string }) {
               <StatusBadge status={m.status} />
             </div>
             <p className="text-sm whitespace-pre-wrap text-ink-muted">{m.goal}</p>
+            {m.agent && (
+              <p className="text-xs text-ink-faint">
+                Agent :{' '}
+                <Link to="/agents" className="text-cyan hover:underline">
+                  {m.agent.name}
+                </Link>
+              </p>
+            )}
             {m.status === 'planning' && <p className="text-sm text-cyan">LEANA prépare un plan…</p>}
             {m.status === 'failed' && (
               <p role="alert" className="text-sm text-danger">
@@ -350,6 +425,7 @@ function MissionView({ id }: { id: string }) {
                           )}
                         </p>
                         <p className="text-xs text-ink-faint">{s.instruction}</p>
+                        <ToolCalls calls={m.tool_calls.filter((c) => c.step_id === s.id)} />
                         {s.output && (
                           <details className="mt-1">
                             <summary className="cursor-pointer text-xs text-cyan">

@@ -2,7 +2,7 @@
 import pino from 'pino';
 import postgres from 'postgres';
 import { loadEnv } from './env.js';
-import { createAiGateway } from './ai/setup.js';
+import { createAiGateway, embedderFor } from './ai/setup.js';
 import { startMissionWorker } from './missions/worker.js';
 
 const env = loadEnv();
@@ -17,7 +17,7 @@ const sql = postgres(env.DATABASE_URL, {
 const { gateway } = createAiGateway(env, log);
 if (!gateway) log.warn('no AI provider configured: missions will fail with ai_not_configured');
 
-const worker = startMissionWorker({ env, sql, gateway, log });
+const worker = startMissionWorker({ env, sql, gateway, embedder: embedderFor(env), log });
 log.info({ queue: env.MISSIONS_QUEUE, concurrency: env.WORKER_CONCURRENCY }, 'worker started');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

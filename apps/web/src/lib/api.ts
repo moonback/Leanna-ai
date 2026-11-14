@@ -162,6 +162,7 @@ export type Mission = {
   status: MissionStatus;
   provider: ProviderId | null;
   model: string | null;
+  agent_id: string | null;
   result: string | null;
   error_code: string | null;
   created_at: string;
@@ -176,6 +177,7 @@ export type MissionStep = {
   requires_approval: boolean;
   status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
   attempt: number;
+  failures: number;
   output: string | null;
   error_code: string | null;
   started_at: string | null;
@@ -185,13 +187,62 @@ export type Approval = {
   id: string;
   mission_id: string;
   step_id: string | null;
-  kind: 'plan' | 'step';
+  kind: 'plan' | 'step' | 'tool';
+  tool_call_id: string | null;
   summary: string;
   status: 'pending' | 'approved' | 'rejected';
   decided_at: string | null;
   created_at: string;
 };
-export type MissionDetail = Mission & { steps: MissionStep[]; approvals: Approval[] };
+export type ToolCall = {
+  id: string;
+  step_id: string;
+  tool: string;
+  input: unknown;
+  status: 'denied' | 'pending_approval' | 'rejected' | 'running' | 'succeeded' | 'failed';
+  output: unknown;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+};
+export type MissionDetail = Mission & {
+  agent: { id: string; name: string } | null;
+  steps: MissionStep[];
+  approvals: Approval[];
+  tool_calls: ToolCall[];
+};
+export type ToolInfo = {
+  name: string;
+  risk: 'read' | 'write' | 'sensitive';
+  description: string;
+  input: unknown;
+};
+export type Agent = {
+  id: string;
+  name: string;
+  description: string | null;
+  instructions: string;
+  tools: string[];
+  auto_write: boolean;
+  provider: ProviderId | null;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type AgentInput = Partial<
+  Pick<
+    Agent,
+    'name' | 'description' | 'instructions' | 'tools' | 'auto_write' | 'provider' | 'model'
+  >
+>;
+
+export const fetchTools = (signal?: AbortSignal) => apiFetch<ToolInfo[]>('/tools', { signal });
+export const fetchAgents = (signal?: AbortSignal) => apiFetch<Agent[]>('/agents', { signal });
+export const createAgent = (body: AgentInput) =>
+  apiFetch<Agent>('/agents', { method: 'POST', body: JSON.stringify(body) });
+export const updateAgent = (id: string, patch: AgentInput) =>
+  apiFetch<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const deleteAgent = (id: string) => apiFetch<void>(`/agents/${id}`, { method: 'DELETE' });
 export type ActivityEntry = {
   id: string;
   mission_id: string | null;
@@ -212,8 +263,8 @@ export const fetchMissionsConfig = (signal?: AbortSignal) =>
 export const fetchMissions = (signal?: AbortSignal) => apiFetch<Mission[]>('/missions', { signal });
 export const fetchMission = (id: string, signal?: AbortSignal) =>
   apiFetch<MissionDetail>(`/missions/${id}`, { signal });
-export const createMission = (goal: string) =>
-  apiFetch<Mission>('/missions', { method: 'POST', body: JSON.stringify({ goal }) });
+export const createMission = (body: { goal: string; agent_id?: string | null }) =>
+  apiFetch<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) });
 export const cancelMission = (id: string) =>
   apiFetch<Mission>(`/missions/${id}/cancel`, { method: 'POST', body: '{}' });
 export const fetchPendingApprovals = (signal?: AbortSignal) =>

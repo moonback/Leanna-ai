@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Sql } from 'postgres';
+import type { Embedder } from '../ai/embeddings.js';
 import type { Gateway } from '../ai/gateway.js';
 import type { Env } from '../env.js';
 import { createMissionEngine } from './engine.js';
@@ -10,6 +11,7 @@ export type MissionWorkerOptions = {
   env: Env;
   sql: Sql;
   gateway: Gateway | null;
+  embedder?: Embedder | null;
   log: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error'>;
   /** Tests shorten BullMQ's stalled-job detection to exercise crash recovery quickly. */
   lockDurationMs?: number;
@@ -32,6 +34,8 @@ export function startMissionWorker(opts: MissionWorkerOptions) {
     maxAttempts: env.MISSION_MAX_ATTEMPTS,
     dailyTokenLimit: env.AI_DAILY_TOKEN_LIMIT,
     maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
+    embedder: opts.embedder ?? null,
+    maxDistance: env.MEMORY_MAX_DISTANCE,
   });
   const queue = createMissionQueue(env.REDIS_URL, env.MISSIONS_QUEUE);
   const worker = new Worker<MissionJob>(
