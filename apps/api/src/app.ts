@@ -6,40 +6,20 @@ import type { Env } from './env.js';
 import { setupAuth } from './plugins/auth.js';
 import { meRoutes } from './modules/me.js';
 import { conversationRoutes } from './modules/conversations.js';
-import { createGateway, type ProviderEntry } from './ai/gateway.js';
-import { geminiProvider } from './ai/gemini.js';
-import { openRouterProvider } from './ai/openrouter.js';
-import type { AiCatalog } from './ai/catalog.js';
 import type { AiProvider, ProviderId } from './ai/types.js';
-import { geminiEmbedder, openRouterEmbedder, type Embedder } from './ai/embeddings.js';
+import type { Embedder } from './ai/embeddings.js';
+import { createAiGateway, embedderFor } from './ai/setup.js';
 import { createBackground } from './background.js';
 import { createMemoryService } from './memory/service.js';
 import { memoryRoutes } from './modules/memories.js';
+import { missionRoutes } from './modules/missions.js';
+import { createMissionQueue } from './missions/queue.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     /** Work that outlives a response; `app.close()` waits for it. */
     background: ReturnType<typeof createBackground>;
   }
-}
-
-/** Embeddings vendor: explicit choice, or the first one with a key ('auto'). */
-function embedderFor(env: Env): Embedder | null {
-  const choice =
-    env.EMBEDDINGS_PROVIDER !== 'auto'
-      ? env.EMBEDDINGS_PROVIDER
-      : env.GEMINI_API_KEY
-        ? 'gemini'
-        : env.OPENROUTER_API_KEY
-          ? 'openrouter'
-          : 'none';
-  if (choice === 'gemini' && env.GEMINI_API_KEY) {
-    return geminiEmbedder(env.GEMINI_API_KEY, env.GEMINI_EMBEDDING_MODEL);
-  }
-  if (choice === 'openrouter' && env.OPENROUTER_API_KEY) {
-    return openRouterEmbedder(env.OPENROUTER_API_KEY, env.OPENROUTER_EMBEDDING_MODEL);
-  }
-  return null;
 }
 
 const startedAt = Date.now();
@@ -57,38 +37,7 @@ export async function buildApp(
 ) {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' });
 
-  const catalog: AiCatalog = {
-    gemini: {
-      label: 'Google Gemini',
-      models: env.GEMINI_MODELS,
-      defaultModel: env.GEMINI_DEFAULT_MODEL,
-    },
-    openrouter: {
-      label: 'OpenRouter',
-      models: env.OPENROUTER_MODELS,
-      defaultModel: env.OPENROUTER_DEFAULT_MODEL,
-    },
-  };
-  const live = deps.aiProviders ?? {
-    ...(env.GEMINI_API_KEY && { gemini: geminiProvider(env.GEMINI_API_KEY) }),
-    ...(env.OPENROUTER_API_KEY && { openrouter: openRouterProvider(env.OPENROUTER_API_KEY) }),
-  };
-  const providers: Partial<Record<ProviderId, ProviderEntry>> = {};
-  for (const [id, provider] of Object.entries(live) as [ProviderId, AiProvider][]) {
-    providers[id] = {
-      provider,
-      models: catalog[id].models,
-      defaultModel: catalog[id].defaultModel,
-    };
-  }
-  const gateway = Object.keys(providers).length
-    ? createGateway({
-        providers,
-        defaultProvider: env.AI_DEFAULT_PROVIDER,
-        timeoutMs: env.AI_TIMEOUT_MS,
-        log: app.log,
-      })
-    : null;
+  const { catalog, gateway } = createAiGateway(env, app.log, deps.aiProviders);
 
   const background = createBackground(app.log);
   app.decorate('background', background);
@@ -117,7 +66,7 @@ export async function buildApp(
 
   await app.register(swagger, {
     openapi: {
-      info: { title: 'LEANA AI API', version: '0.4.0' },
+      info: { title: 'LEANA AI API', version: '0.5.0' },
       components: {
         securitySchemes: { bearer: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
       },
@@ -148,13 +97,22 @@ export async function buildApp(
     },
     async () => ({
       status: 'ok' as const,
-      version: '0.4.0',
+      version: '0.5.0',
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     }),
   );
 
   await app.register(meRoutes, { gateway });
+  // Missions run in the worker process; the API only creates them and wakes the worker.
+  const queue = env.REDIS_URL ? createMissionQueue(env.REDIS_URL, env.MISSIONS_QUEUE) : null;
+  if (queue) app.addHook('onClose', () => queue.close());
+
   await app.register(memoryRoutes, { memory });
+  await app.register(missionRoutes, {
+    gateway,
+    queue,
+    dailyTokenLimit: env.AI_DAILY_TOKEN_LIMIT,
+  });
   await app.register(conversationRoutes, {
     gateway,
     catalog,
