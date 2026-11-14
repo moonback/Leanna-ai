@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { LogOut, Menu, Sparkles, X } from 'lucide-react';
 import { MODULES } from '@/modules';
+import { useNotifications } from '@/pages/ActivityPages';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { useMe } from '@/lib/useMe';
@@ -20,6 +21,7 @@ function Brand() {
 }
 
 function Nav() {
+  const unread = useNotifications().data?.unread ?? 0;
   return (
     <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto px-2 pb-4">
       <ul className="space-y-0.5">
@@ -40,6 +42,14 @@ function Nav() {
               >
                 <Icon className="size-4" aria-hidden />
                 {label}
+                {path === '/notifications' && unread > 0 && (
+                  <span className="ml-auto rounded-full bg-cyan px-1.5 text-[10px] font-semibold text-night-950">
+                    <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
+                    <span className="sr-only">
+                      {` (${unread} non lue${unread > 1 ? 's' : ''})`}
+                    </span>
+                  </span>
+                )}
               </NavLink>
             ) : (
               <span

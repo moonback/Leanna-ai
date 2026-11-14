@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel dev",
+    "dev:worker": "pnpm --filter @leana/api dev:worker",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

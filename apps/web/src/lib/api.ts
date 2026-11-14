@@ -153,6 +153,86 @@ export const reindexMemories = () =>
     body: '{}',
   });
 
+export type MissionStatus =
+  'planning' | 'awaiting_approval' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type Mission = {
+  id: string;
+  title: string;
+  goal: string;
+  status: MissionStatus;
+  provider: ProviderId | null;
+  model: string | null;
+  result: string | null;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+};
+export type MissionStep = {
+  id: string;
+  position: number;
+  title: string;
+  instruction: string;
+  requires_approval: boolean;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  attempt: number;
+  output: string | null;
+  error_code: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+export type Approval = {
+  id: string;
+  mission_id: string;
+  step_id: string | null;
+  kind: 'plan' | 'step';
+  summary: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decided_at: string | null;
+  created_at: string;
+};
+export type MissionDetail = Mission & { steps: MissionStep[]; approvals: Approval[] };
+export type ActivityEntry = {
+  id: string;
+  mission_id: string | null;
+  kind: string;
+  summary: string;
+  created_at: string;
+};
+export type AppNotification = {
+  id: string;
+  title: string;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export const fetchMissionsConfig = (signal?: AbortSignal) =>
+  apiFetch<{ configured: boolean }>('/missions/config', { signal });
+export const fetchMissions = (signal?: AbortSignal) => apiFetch<Mission[]>('/missions', { signal });
+export const fetchMission = (id: string, signal?: AbortSignal) =>
+  apiFetch<MissionDetail>(`/missions/${id}`, { signal });
+export const createMission = (goal: string) =>
+  apiFetch<Mission>('/missions', { method: 'POST', body: JSON.stringify({ goal }) });
+export const cancelMission = (id: string) =>
+  apiFetch<Mission>(`/missions/${id}/cancel`, { method: 'POST', body: '{}' });
+export const fetchPendingApprovals = (signal?: AbortSignal) =>
+  apiFetch<(Approval & { mission: { title: string } })[]>('/approvals', { signal });
+export const decideApproval = (id: string, decision: 'approved' | 'rejected') =>
+  apiFetch<Approval>(`/approvals/${id}/decide`, {
+    method: 'POST',
+    body: JSON.stringify({ decision }),
+  });
+export const fetchActivity = (limit = 50, signal?: AbortSignal) =>
+  apiFetch<ActivityEntry[]>(`/activity?limit=${limit}`, { signal });
+export const fetchNotifications = (signal?: AbortSignal) =>
+  apiFetch<{ items: AppNotification[]; unread: number }>('/notifications', { signal });
+export const markNotificationsRead = (body: { ids: string[] } | { all: true }) =>
+  apiFetch<{ marked: number }>('/notifications/read', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 /** Sends a message and reports each Server-Sent Event as it arrives. */
 export async function streamMessage(
   conversationId: string,

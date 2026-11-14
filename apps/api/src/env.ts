@@ -59,6 +59,18 @@ const EnvSchema = z
     // against a real embedding model yet (no key during development): tune with real data.
     MEMORY_MAX_DISTANCE: z.coerce.number().min(0).max(2).default(0.5),
     MEMORY_RECALL_COUNT: z.coerce.number().int().min(1).max(50).default(8),
+
+    // Missions. Without REDIS_URL the API reports missions as "not configured" (503).
+    REDIS_URL: optionalSecret,
+    // Worker only: a Postgres login that is a member of `leana_worker` (never service_role).
+    DATABASE_URL: optionalSecret,
+    MISSIONS_QUEUE: z.string().min(1).default('missions'),
+    WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
+    // A claimed step is considered abandoned after this long (crash recovery).
+    MISSION_STEP_LEASE_MS: z.coerce.number().int().min(1000).default(180_000),
+    MISSION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+    // Recovery sweep: re-enqueues unfinished missions nobody is working on.
+    MISSION_SWEEP_MS: z.coerce.number().int().min(500).default(30_000),
   })
   .refine((e) => e.GEMINI_MODELS.includes(e.GEMINI_DEFAULT_MODEL), {
     message: 'GEMINI_DEFAULT_MODEL must be listed in GEMINI_MODELS',
