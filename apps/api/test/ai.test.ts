@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@google/genai';
 import { createGateway } from '../src/ai/gateway.js';
 import { geminiProvider, toAiError } from '../src/ai/gemini.js';
+import { openRouterProvider } from '../src/ai/openrouter.js';
 import { AiError, type AiProvider, type StreamEvent } from '../src/ai/types.js';
 
 const log = { info: vi.fn(), warn: vi.fn() };
 const base = {
+  provider: 'gemini' as const,
   system: 'sys',
   history: [{ role: 'user' as const, content: 'Bonjour' }],
   maxOutputTokens: 100,
@@ -13,9 +15,8 @@ const base = {
 
 function gateway(provider: AiProvider, timeoutMs = 1000) {
   return createGateway({
-    provider,
-    models: ['m1', 'm2'],
-    defaultModel: 'm1',
+    providers: { gemini: { provider, models: ['m1', 'm2'], defaultModel: 'm1' } },
+    defaultProvider: 'gemini',
     timeoutMs,
     retryDelayMs: 1,
     log,
@@ -114,14 +115,63 @@ describe('gateway', () => {
     ).rejects.toMatchObject({ code: 'aborted' });
   });
 
-  it('refuses models outside the allowlist and resolves preferences against it', async () => {
+  it("refuses models outside the allowlist, including another provider's models", async () => {
     const g = gateway(scripted(async function* () {}));
     await expect(collect(g.stream({ ...base, model: 'gpt-x' }))).rejects.toMatchObject({
       code: 'invalid_request',
     });
-    expect(g.resolveModel('m2')).toBe('m2');
-    expect(g.resolveModel('gpt-x')).toBe('m1');
-    expect(g.resolveModel(undefined)).toBe('m1');
+    await expect(
+      collect(g.stream({ ...base, provider: 'openrouter', model: 'm1' })),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+  });
+
+  it('resolves preferences across providers and falls back when one is not configured', () => {
+    const noop = scripted(async function* () {});
+    const g = createGateway({
+      providers: {
+        gemini: { provider: noop, models: ['g1', 'g2'], defaultModel: 'g1' },
+        openrouter: { provider: noop, models: ['o1', 'o2'], defaultModel: 'o1' },
+      },
+      defaultProvider: 'gemini',
+      timeoutMs: 1000,
+      log,
+    });
+    expect(g.resolve(null)).toEqual({ provider: 'gemini', model: 'g1' });
+    expect(g.resolve({ ai_provider: 'openrouter' })).toEqual({
+      provider: 'openrouter',
+      model: 'o1',
+    });
+    expect(g.resolve({ ai_provider: 'openrouter', ai_model: 'o2' })).toEqual({
+      provider: 'openrouter',
+      model: 'o2',
+    });
+    // A model of another provider, or one removed from the allowlist, falls back.
+    expect(g.resolve({ ai_provider: 'openrouter', ai_model: 'g2' })).toEqual({
+      provider: 'openrouter',
+      model: 'o1',
+    });
+
+    const geminiOnly = gateway(noop);
+    expect(geminiOnly.resolve({ ai_provider: 'openrouter', ai_model: 'o2' })).toEqual({
+      provider: 'gemini',
+      model: 'm1',
+    });
+  });
+
+  it('uses the first configured provider when the default one has no key', () => {
+    const g = createGateway({
+      providers: {
+        openrouter: {
+          provider: scripted(async function* () {}),
+          models: ['o1'],
+          defaultModel: 'o1',
+        },
+      },
+      defaultProvider: 'gemini',
+      timeoutMs: 1000,
+      log,
+    });
+    expect(g.defaultChoice).toEqual({ provider: 'openrouter', model: 'o1' });
   });
 
   it('never logs prompt or reply text', async () => {
@@ -207,5 +257,105 @@ describe('gemini adapter', () => {
       code: 'unavailable',
       retryable: true,
     });
+  });
+});
+
+describe('openrouter adapter', () => {
+  /** A fetch double answering with an SSE body split into arbitrary network chunks. */
+  function sseFetch(chunks: string[], status = 200) {
+    const encoder = new TextEncoder();
+    return vi.fn(async () =>
+      status !== 200
+        ? new Response(JSON.stringify({ error: { code: status, message: 'x' } }), { status })
+        : new Response(
+            new ReadableStream({
+              start(c) {
+                chunks.forEach((s) => c.enqueue(encoder.encode(s)));
+                c.close();
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
+          ),
+    );
+  }
+  const req = {
+    model: 'anthropic/claude-haiku-5.5',
+    system: 'Tu es LEANA',
+    maxOutputTokens: 256,
+    signal: new AbortController().signal,
+    history: [
+      { role: 'user' as const, content: 'Salut' },
+      { role: 'assistant' as const, content: 'Bonjour !' },
+      { role: 'user' as const, content: 'Ça va ?' },
+    ],
+  };
+  const delta = (text: string) =>
+    `data: {"choices":[{"delta":{"content":${JSON.stringify(text)}}}]}\n\n`;
+
+  it('streams text, skips keep-alive comments and reads usage from the final chunk', async () => {
+    const fetchImpl = sseFetch([
+      ': OPENROUTER PROCESSING\n\n',
+      delta('Bon').slice(0, 20),
+      delta('Bon').slice(20) + delta('jour'),
+      'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":12,"completion_tokens_details":{"reasoning_tokens":5}}}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    const events = await collect(openRouterProvider('sk-test', fetchImpl).stream(req));
+
+    expect(events).toEqual([
+      { type: 'text', text: 'Bon' },
+      { type: 'text', text: 'jour' },
+      { type: 'usage', inputTokens: 30, outputTokens: 12 },
+    ]);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer sk-test');
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'anthropic/claude-haiku-5.5',
+      stream: true,
+      max_tokens: 256,
+      messages: [
+        { role: 'system', content: 'Tu es LEANA' },
+        { role: 'user', content: 'Salut' },
+        { role: 'assistant', content: 'Bonjour !' },
+        { role: 'user', content: 'Ça va ?' },
+      ],
+    });
+    expect(init.signal).toBe(req.signal);
+  });
+
+  it('turns a mid-stream provider error into a gateway error', async () => {
+    const fetchImpl = sseFetch([
+      delta('partiel'),
+      'data: {"choices":[{"delta":{"content":""},"finish_reason":"error","error":{"code":502,"message":"Provider disconnected"}}]}\n\n',
+    ]);
+    const seen: StreamEvent[] = [];
+    await expect(
+      (async () => {
+        for await (const e of openRouterProvider('k', fetchImpl).stream(req)) seen.push(e);
+      })(),
+    ).rejects.toMatchObject({ code: 'unavailable', retryable: true });
+    expect(seen).toEqual([{ type: 'text', text: 'partiel' }]);
+  });
+
+  it.each([
+    [402, 'payment_required', false],
+    [401, 'auth', false],
+    [429, 'rate_limited', true],
+    [404, 'model_not_found', false],
+  ] as const)('maps HTTP %i to %s', async (status, code, retryable) => {
+    await expect(
+      collect(openRouterProvider('k', sseFetch([], status)).stream(req)),
+    ).rejects.toMatchObject({
+      code,
+      retryable,
+    });
+  });
+
+  it('reports no usage rather than zero when the provider omits it', async () => {
+    const events = await collect(
+      openRouterProvider('k', sseFetch([delta('ok'), 'data: [DONE]\n\n'])).stream(req),
+    );
+    expect(events).toEqual([{ type: 'text', text: 'ok' }]);
   });
 });

@@ -48,5 +48,7 @@
 - [x] API : conversations (CRUD), envoi en SSE, quota quotidien, préférence de modèle, 503 explicite sans clé
 - [x] Web : module Assistant (liste, fil, streaming, arrêt, états non configuré, quota et erreur), choix du modèle dans Paramètres
 - [x] **Preuve** : E2E dialogue réel avec Gemini (desktop + mobile : réponse, suite avec historique, persistance après rechargement)
+- [x] Second fournisseur **OpenRouter** (adaptateur fetch, erreurs en cours de flux, 402) ; choix fournisseur + modèle dans Paramètres, validé côté serveur
+- [ ] **Preuve OpenRouter réelle** : E2E prêt, ignoré tant que `OPENROUTER_API_KEY` est absente
 - [ ] Bascule automatique vers un modèle de secours quand le modèle choisi est surchargé
 - [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)

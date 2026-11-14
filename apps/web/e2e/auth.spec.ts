@@ -35,7 +35,7 @@ test('account lifecycle: signup, profile, logout, login', async ({ page, isMobil
   await expect(page.getByText('Propriétaire')).toBeVisible();
   await page.getByLabel('Nom affiché').fill('Testeur Renommé');
   await page.getByLabel('Fuseau horaire').selectOption('America/Toronto');
-  await page.getByRole('button', { name: 'Enregistrer' }).click();
+  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
   await expect(page.getByText('Profil enregistré.')).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Nom affiché')).toHaveValue('Testeur Renommé');

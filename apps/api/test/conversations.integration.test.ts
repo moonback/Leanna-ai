@@ -7,7 +7,12 @@ import { AiError, type AiProvider, type StreamEvent, type StreamRequest } from '
 import { parseSse, signUp } from './helpers.js';
 
 // Never reach the real provider from these tests, even if a key is in .env.
-const env = loadEnv({ ...process.env, NODE_ENV: 'test', GEMINI_API_KEY: undefined });
+const env = loadEnv({
+  ...process.env,
+  NODE_ENV: 'test',
+  GEMINI_API_KEY: undefined,
+  OPENROUTER_API_KEY: undefined,
+});
 
 type Behaviour = (req: StreamRequest) => AsyncGenerator<StreamEvent>;
 
@@ -40,7 +45,11 @@ function fakeProvider() {
 
 describe('assistant (integration)', () => {
   const fake = fakeProvider();
-  beforeEach(() => fake.reset());
+  const orFake = fakeProvider();
+  beforeEach(() => {
+    fake.reset();
+    orFake.reset();
+  });
   let app: Awaited<ReturnType<typeof buildApp>>;
   let alice: Awaited<ReturnType<typeof signUp>>;
   let bob: Awaited<ReturnType<typeof signUp>>;
@@ -62,16 +71,33 @@ describe('assistant (integration)', () => {
     ).json();
 
   beforeAll(async () => {
-    app = await buildApp(env, { aiProvider: fake.provider });
+    app = await buildApp(env, {
+      aiProviders: { gemini: fake.provider, openrouter: orFake.provider },
+    });
     [alice, bob] = await Promise.all([signUp(env, 'Alice'), signUp(env, 'Bob')]);
   });
 
-  it('reports the assistant as configured with the allowed models', async () => {
+  it('describes both providers with their allowed models, never their keys', async () => {
     const res = await app.inject({ method: 'GET', url: '/ai/config', headers: alice.auth });
     expect(res.json()).toEqual({
       configured: true,
-      models: env.AI_MODELS,
-      default_model: env.AI_DEFAULT_MODEL,
+      default: { provider: 'gemini', model: env.GEMINI_DEFAULT_MODEL },
+      providers: [
+        {
+          id: 'gemini',
+          label: 'Google Gemini',
+          configured: true,
+          models: env.GEMINI_MODELS,
+          default_model: env.GEMINI_DEFAULT_MODEL,
+        },
+        {
+          id: 'openrouter',
+          label: 'OpenRouter',
+          configured: true,
+          models: env.OPENROUTER_MODELS,
+          default_model: env.OPENROUTER_DEFAULT_MODEL,
+        },
+      ],
     });
   });
 
@@ -104,7 +130,7 @@ describe('assistant (integration)', () => {
     await send(conv.id, 'Second');
 
     const req = fake.calls[0]!;
-    expect(req.model).toBe(env.AI_DEFAULT_MODEL);
+    expect(req.model).toBe(env.GEMINI_DEFAULT_MODEL);
     expect(req.system).toContain('LEANA');
     expect(req.system).toContain('Alice');
     expect(req.history).toEqual([
@@ -137,18 +163,36 @@ describe('assistant (integration)', () => {
     expect(fake.calls[0]!.history).toEqual([{ role: 'user', content: 'Question 2' }]);
   });
 
-  it('uses the model chosen in preferences', async () => {
-    const chosen = env.AI_MODELS.at(-1)!;
+  it('routes to the provider and model chosen in preferences, and records them', async () => {
+    const chosen = env.OPENROUTER_MODELS.at(-1)!;
+    const pref = await app.inject({
+      method: 'PATCH',
+      url: '/me/preferences',
+      headers: bob.auth,
+      payload: { ai_provider: 'openrouter', ai_model: chosen },
+    });
+    expect(pref.statusCode).toBe(200);
+
+    const conv = await create(bob);
+    const events = parseSse((await send(conv.id, 'Salut', bob)).payload);
+    expect(events[0]!.data).toMatchObject({ provider: 'openrouter', model: chosen });
+    expect(fake.calls).toHaveLength(0);
+    expect(orFake.calls[0]!.model).toBe(chosen);
+
+    const stored = await messages(conv.id, bob);
+    expect(stored[1]).toMatchObject({ role: 'assistant', provider: 'openrouter', model: chosen });
+
+    // Back to defaults.
     await app.inject({
       method: 'PATCH',
       url: '/me/preferences',
       headers: bob.auth,
-      payload: { ai_model: chosen },
+      payload: { ai_provider: null, ai_model: null },
     });
-    const conv = await create(bob);
-    fake.reset();
-    await send(conv.id, 'Salut', bob);
-    expect(fake.calls[0]!.model).toBe(chosen);
+    orFake.reset();
+    await send(conv.id, 'Encore', bob);
+    expect(fake.calls[0]!.model).toBe(env.GEMINI_DEFAULT_MODEL);
+    expect(orFake.calls).toHaveLength(0);
   });
 
   it('isolates conversations between users', async () => {
@@ -241,7 +285,7 @@ describe('assistant limits (integration)', () => {
   it('enforces the daily token quota from the usage ledger', async () => {
     const tight = loadEnv({ ...process.env, NODE_ENV: 'test', AI_DAILY_TOKEN_LIMIT: '10' });
     const app = await buildApp(tight, {
-      aiProvider: { name: 'test-double', stream: defaultEcho },
+      aiProviders: { gemini: { name: 'test-double', stream: defaultEcho } },
     });
     const user = await signUp(tight);
     const conv = (
@@ -264,12 +308,14 @@ describe('assistant limits (integration)', () => {
   it('charges an estimate when a reply fails mid-way, so "Stop" cannot dodge the quota', async () => {
     const tight = loadEnv({ ...process.env, NODE_ENV: 'test', AI_DAILY_TOKEN_LIMIT: '10' });
     const app = await buildApp(tight, {
-      aiProvider: {
-        name: 'test-double',
-        // Partial text, then failure: the provider never reports usage.
-        stream: async function* () {
-          yield { type: 'text', text: 'Une longue réponse commencée' };
-          throw new AiError('unavailable', 'cut');
+      aiProviders: {
+        gemini: {
+          name: 'test-double',
+          // Partial text, then failure: the provider never reports usage.
+          stream: async function* () {
+            yield { type: 'text', text: 'Une longue réponse commencée' };
+            throw new AiError('unavailable', 'cut');
+          },
         },
       },
     });

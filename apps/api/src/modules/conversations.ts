@@ -4,10 +4,12 @@ import { z } from 'zod';
 import { httpError } from '../http.js';
 import { requireAuth } from '../plugins/auth.js';
 import type { Gateway } from '../ai/gateway.js';
+import { describeAi, type AiCatalog } from '../ai/catalog.js';
 import { AiError, type ChatTurn } from '../ai/types.js';
 
 export type ConversationOptions = {
   gateway: Gateway | null;
+  catalog: AiCatalog;
   maxOutputTokens: number;
   dailyTokenLimit: number;
 };
@@ -18,7 +20,7 @@ const CreateBody = z.object({ title: z.string().trim().min(1).max(120).optional(
 const MessageBody = z.object({ content: z.string().trim().min(1).max(8000) }).strict();
 
 const CONVERSATION_COLUMNS = 'id, title, created_at, updated_at';
-const MESSAGE_COLUMNS = 'id, role, content, status, model, error_code, created_at';
+const MESSAGE_COLUMNS = 'id, role, content, status, provider, model, error_code, created_at';
 // shortcut: recency window instead of relevance; the Context Engine (Phase 4) replaces this.
 const HISTORY_MAX_MESSAGES = 40;
 const HISTORY_CHAR_BUDGET = 24_000;
@@ -82,12 +84,8 @@ export async function conversationRoutes(app: FastifyInstance, opts: Conversatio
 
   app.get(
     '/ai/config',
-    { schema: docs('Assistant availability and allowed models') },
-    async () => ({
-      configured: gateway !== null,
-      models: gateway?.models ?? [],
-      default_model: gateway?.defaultModel ?? null,
-    }),
+    { schema: docs('AI providers, their availability and allowed models') },
+    async () => describeAi(opts.catalog, gateway),
   );
 
   app.get(
@@ -212,12 +210,13 @@ export async function conversationRoutes(app: FastifyInstance, opts: Conversatio
       for (const r of [profile, prefs, used, previous]) if (r.error) throw r.error;
       if (Number(used.data) >= opts.dailyTokenLimit) throw httpError(429, 'Daily AI quota reached');
 
-      const model = gateway.resolveModel(prefs.data!.settings?.ai_model);
+      const { provider, model } = gateway.resolve(prefs.data!.settings);
       const system = systemPrompt(profile.data!);
       const history = buildHistory([
         ...(previous.data as StoredMessage[]).reverse(),
         { role: 'user', content, status: 'complete' },
       ]);
+      const promptChars = system.length + history.reduce((n, t) => n + t.content.length, 0);
 
       const userMessage = await db
         .from('messages')
@@ -250,11 +249,26 @@ export async function conversationRoutes(app: FastifyInstance, opts: Conversatio
         if (!res.writableEnded) abort.abort();
       });
 
-      send('start', { userMessageId: userMessage.data.id, model });
       let answer = '';
+      // Provider-reported usage when available; otherwise an estimate (~4 chars/token) so
+      // a stopped, failed or unreported reply still counts against the daily quota.
+      const recordUsage = async (usage: { inputTokens: number; outputTokens: number } | null) => {
+        const { error } = await db.from('ai_usage').insert({
+          conversation_id: id,
+          provider,
+          model,
+          input_tokens: usage?.inputTokens ?? Math.ceil(promptChars / 4),
+          output_tokens: usage?.outputTokens ?? Math.ceil(answer.length / 4),
+          estimated: !usage,
+        });
+        if (error) req.log.error(error, 'failed to record ai usage');
+      };
+
+      send('start', { userMessageId: userMessage.data.id, provider, model });
       try {
-        let usage: { inputTokens: number; outputTokens: number } | undefined;
+        let usage: { inputTokens: number; outputTokens: number } | null = null;
         for await (const event of gateway.stream({
+          provider,
           model,
           system,
           history,
@@ -274,21 +288,14 @@ export async function conversationRoutes(app: FastifyInstance, opts: Conversatio
             conversation_id: id,
             role: 'assistant',
             content: answer.slice(0, 32000),
+            provider,
             model,
           })
           .select(MESSAGE_COLUMNS)
           .single();
         if (saved.error) throw saved.error;
-        if (usage) {
-          const u = await db.from('ai_usage').insert({
-            conversation_id: id,
-            model,
-            input_tokens: usage.inputTokens,
-            output_tokens: usage.outputTokens,
-          });
-          if (u.error) req.log.error(u.error, 'failed to record ai usage');
-        }
-        send('done', { message: saved.data, usage: usage ?? null });
+        await recordUsage(usage);
+        send('done', { message: saved.data, usage });
       } catch (err) {
         const code = err instanceof AiError ? err.code : 'internal';
         if (!(err instanceof AiError)) req.log.error(err);
@@ -298,24 +305,13 @@ export async function conversationRoutes(app: FastifyInstance, opts: Conversatio
           role: 'assistant',
           content: answer.slice(0, 32000),
           status: code === 'aborted' ? 'interrupted' : 'error',
+          provider,
           model,
           error_code: code,
         });
         if (failed.error) req.log.error(failed.error, 'failed to record failed answer');
-
-        // The provider did work but never reported usage: charge an estimate (~4 chars/token)
-        // so stopping a reply or hitting a timeout cannot bypass the daily quota.
-        if (answer || code === 'aborted' || code === 'timeout') {
-          const promptChars = system.length + history.reduce((n, t) => n + t.content.length, 0);
-          const estimate = await db.from('ai_usage').insert({
-            conversation_id: id,
-            model,
-            input_tokens: Math.ceil(promptChars / 4),
-            output_tokens: Math.ceil(answer.length / 4),
-            estimated: true,
-          });
-          if (estimate.error) req.log.error(estimate.error, 'failed to record estimated usage');
-        }
+        // The provider did work (partial text, stop, timeout): charge an estimate.
+        if (answer || code === 'aborted' || code === 'timeout') await recordUsage(null);
         if (!res.writableEnded && !abort.signal.aborted) send('error', { code });
       } finally {
         clearInterval(heartbeat);

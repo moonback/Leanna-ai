@@ -1,6 +1,6 @@
 -- Phase 3 proof: conversations, messages and usage ledger are isolated and constrained.
 begin;
-select plan(22);
+select plan(23);
 
 insert into auth.users (id, email) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'alice-a@test.local'),
@@ -55,18 +55,21 @@ select throws_ok($$ insert into public.messages (conversation_id, role, content)
 select throws_ok($$ update public.messages set content = 'edited' $$,
   '42501', null, 'messages are immutable');
 
-select lives_ok($$ insert into public.ai_usage (conversation_id, model, input_tokens, output_tokens)
-                   select alice_conv, 'gemini-3.8-flash', 120, 45 from ids $$,
+select lives_ok($$ insert into public.ai_usage (conversation_id, provider, model, input_tokens, output_tokens)
+                   select alice_conv, 'gemini', 'gemini-3.6-flash', 120, 45 from ids $$,
   'Alice records usage');
 select throws_ok($$ update public.ai_usage set output_tokens = 0 $$,
   '42501', null, 'usage cannot be rewritten');
 select throws_ok($$ delete from public.ai_usage $$,
   '42501', null, 'usage cannot be erased');
-select throws_ok($$ insert into public.ai_usage (model, input_tokens, output_tokens)
-                    values ('gemini-3.8-flash', -1, 0) $$,
+select throws_ok($$ insert into public.ai_usage (provider, model, input_tokens, output_tokens)
+                    values ('gemini', 'gemini-3.6-flash', -1, 0) $$,
   '23514', null, 'negative token counts are rejected');
-select throws_ok($$ insert into public.ai_usage (conversation_id, model, input_tokens, output_tokens)
-                    select bob_conv, 'gemini-3.8-flash', 1, 1 from ids $$,
+select throws_ok($$ insert into public.ai_usage (provider, model, input_tokens, output_tokens)
+                    values ('unknown-vendor', 'x', 1, 1) $$,
+  '23514', null, 'only known AI providers are accepted');
+select throws_ok($$ insert into public.ai_usage (conversation_id, provider, model, input_tokens, output_tokens)
+                    select bob_conv, 'gemini', 'gemini-3.6-flash', 1, 1 from ids $$,
   '42501', null, 'usage cannot be attached to Bob''s conversation');
 
 select lives_ok($$ delete from public.conversations where id = (select bob_conv from ids) $$,

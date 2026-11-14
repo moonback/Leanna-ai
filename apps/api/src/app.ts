@@ -6,22 +6,52 @@ import type { Env } from './env.js';
 import { setupAuth } from './plugins/auth.js';
 import { meRoutes } from './modules/me.js';
 import { conversationRoutes } from './modules/conversations.js';
-import { createGateway } from './ai/gateway.js';
+import { createGateway, type ProviderEntry } from './ai/gateway.js';
 import { geminiProvider } from './ai/gemini.js';
-import type { AiProvider } from './ai/types.js';
+import { openRouterProvider } from './ai/openrouter.js';
+import type { AiCatalog } from './ai/catalog.js';
+import type { AiProvider, ProviderId } from './ai/types.js';
 
 const startedAt = Date.now();
 
-/** `aiProvider` is injected by tests only; production uses Gemini when a key is set. */
-export async function buildApp(env: Env, deps: { aiProvider?: AiProvider } = {}) {
+/**
+ * `aiProviders` is injected by tests only (it replaces key-based providers entirely);
+ * in production each vendor is enabled by its API key.
+ */
+export async function buildApp(
+  env: Env,
+  deps: { aiProviders?: Partial<Record<ProviderId, AiProvider>> } = {},
+) {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' });
-  const provider =
-    deps.aiProvider ?? (env.GEMINI_API_KEY ? geminiProvider(env.GEMINI_API_KEY) : null);
-  const gateway = provider
+
+  const catalog: AiCatalog = {
+    gemini: {
+      label: 'Google Gemini',
+      models: env.GEMINI_MODELS,
+      defaultModel: env.GEMINI_DEFAULT_MODEL,
+    },
+    openrouter: {
+      label: 'OpenRouter',
+      models: env.OPENROUTER_MODELS,
+      defaultModel: env.OPENROUTER_DEFAULT_MODEL,
+    },
+  };
+  const live = deps.aiProviders ?? {
+    ...(env.GEMINI_API_KEY && { gemini: geminiProvider(env.GEMINI_API_KEY) }),
+    ...(env.OPENROUTER_API_KEY && { openrouter: openRouterProvider(env.OPENROUTER_API_KEY) }),
+  };
+  const providers: Partial<Record<ProviderId, ProviderEntry>> = {};
+  for (const [id, provider] of Object.entries(live) as [ProviderId, AiProvider][]) {
+    providers[id] = {
+      provider,
+      models: catalog[id].models,
+      defaultModel: catalog[id].defaultModel,
+    };
+  }
+  const gateway = Object.keys(providers).length
     ? createGateway({
-        provider,
-        models: env.AI_MODELS,
-        defaultModel: env.AI_DEFAULT_MODEL,
+        providers,
+        defaultProvider: env.AI_DEFAULT_PROVIDER,
         timeoutMs: env.AI_TIMEOUT_MS,
         log: app.log,
       })
@@ -79,9 +109,10 @@ export async function buildApp(env: Env, deps: { aiProvider?: AiProvider } = {})
     }),
   );
 
-  await app.register(meRoutes, { aiModels: env.AI_MODELS });
+  await app.register(meRoutes, { gateway });
   await app.register(conversationRoutes, {
     gateway,
+    catalog,
     maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
     dailyTokenLimit: env.AI_DAILY_TOKEN_LIMIT,
   });

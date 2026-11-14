@@ -25,14 +25,42 @@ export const ME = {
   id: 'user-1',
   email: 'alice@example.test',
   profile: { display_name: 'Alice', avatar_url: null, locale: 'fr', timezone: 'Europe/Paris' },
-  preferences: { ai_model: null },
+  preferences: { ai_provider: null, ai_model: null },
   workspaces: [{ id: 'ws-1', name: 'Espace personnel', role: 'owner' }],
 };
 
-export const AI_CONFIG = {
+const GEMINI = {
+  id: 'gemini',
+  label: 'Google Gemini',
   configured: true,
   models: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'],
   default_model: 'gemini-3.6-flash',
+};
+const OPENROUTER = {
+  id: 'openrouter',
+  label: 'OpenRouter',
+  configured: false,
+  models: ['anthropic/claude-haiku-5.5', 'mistralai/mistral-small-2603'],
+  default_model: 'anthropic/claude-haiku-5.5',
+};
+
+/** Gemini configured, OpenRouter without key (the default server state in tests). */
+export const AI_CONFIG = {
+  configured: true,
+  default: { provider: 'gemini', model: 'gemini-3.6-flash' },
+  providers: [GEMINI, OPENROUTER],
+};
+export const AI_CONFIG_BOTH = {
+  ...AI_CONFIG,
+  providers: [GEMINI, { ...OPENROUTER, configured: true }],
+};
+export const AI_CONFIG_NONE = {
+  configured: false,
+  default: null,
+  providers: [
+    { ...GEMINI, configured: false },
+    { ...OPENROUTER, configured: false },
+  ],
 };
 
 /** An SSE response whose chunks deliberately split events mid-way, like a real network. */

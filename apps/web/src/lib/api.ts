@@ -45,10 +45,24 @@ export type Me = {
   id: string;
   email: string | null;
   profile: Profile;
-  preferences: { ai_model: string | null };
+  preferences: AiPreference;
   workspaces: { id: string; name: string; role: 'owner' | 'admin' | 'member' }[];
 };
-export type AiConfig = { configured: boolean; models: string[]; default_model: string | null };
+export type ProviderId = 'gemini' | 'openrouter';
+/** null provider = server default; null model = the provider's default model. */
+export type AiPreference = { ai_provider: ProviderId | null; ai_model: string | null };
+export type AiProviderInfo = {
+  id: ProviderId;
+  label: string;
+  configured: boolean;
+  models: string[];
+  default_model: string;
+};
+export type AiConfig = {
+  configured: boolean;
+  default: { provider: ProviderId; model: string } | null;
+  providers: AiProviderInfo[];
+};
 export type Conversation = {
   id: string;
   title: string | null;
@@ -60,6 +74,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
   status: 'complete' | 'error' | 'interrupted';
+  provider: ProviderId | null;
   model: string | null;
   error_code: string | null;
   created_at: string;
@@ -70,7 +85,7 @@ export const fetchMe = (signal?: AbortSignal) => apiFetch<Me>('/me', { signal })
 export const updateProfile = (
   patch: Partial<Pick<Profile, 'display_name' | 'locale' | 'timezone'>>,
 ) => apiFetch<Profile>('/me/profile', { method: 'PATCH', body: JSON.stringify(patch) });
-export const updatePreferences = (prefs: { ai_model: string | null }) =>
+export const updatePreferences = (prefs: AiPreference) =>
   apiFetch('/me/preferences', { method: 'PATCH', body: JSON.stringify(prefs) });
 
 export const fetchAiConfig = (signal?: AbortSignal) => apiFetch<AiConfig>('/ai/config', { signal });

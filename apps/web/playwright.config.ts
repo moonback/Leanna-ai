@@ -5,6 +5,9 @@ const channel = process.env.PW_CHANNEL ?? 'chrome';
 
 export default defineConfig({
   testDir: './e2e',
+  // One worker: the assistant specs call real AI providers, whose per-minute rate limits
+  // are hit (429) when desktop and mobile chat in parallel.
+  workers: 1,
   use: { baseURL: 'http://localhost:4173' },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], channel } },

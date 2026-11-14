@@ -75,9 +75,13 @@ describe('api', () => {
     expect(loadEnv({ ...base, GEMINI_API_KEY: '' }).GEMINI_API_KEY).toBeUndefined();
   });
 
-  it('keeps the default AI model inside the allowlist', () => {
-    expect(() => loadEnv({ ...base, AI_MODELS: 'a,b', AI_DEFAULT_MODEL: 'c' })).toThrow(
-      /AI_DEFAULT_MODEL/,
+  it('keeps each provider default model inside its allowlist', () => {
+    expect(() => loadEnv({ ...base, GEMINI_MODELS: 'a,b', GEMINI_DEFAULT_MODEL: 'c' })).toThrow(
+      /GEMINI_DEFAULT_MODEL/,
     );
+    expect(() =>
+      loadEnv({ ...base, OPENROUTER_MODELS: 'x/a', OPENROUTER_DEFAULT_MODEL: 'x/b' }),
+    ).toThrow(/OPENROUTER_DEFAULT_MODEL/);
+    expect(() => loadEnv({ ...base, AI_DEFAULT_PROVIDER: 'acme' })).toThrow(/AI_DEFAULT_PROVIDER/);
   });
 });

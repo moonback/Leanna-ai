@@ -1,19 +1,35 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { AiError, type AiProvider, type StreamEvent, type StreamRequest } from './types.js';
+import {
+  AiError,
+  type AiProvider,
+  type ProviderId,
+  type StreamEvent,
+  type StreamRequest,
+} from './types.js';
 
-export type GatewayOptions = {
+/** A configured vendor and the models users may pick from it (server-side allowlist). */
+export type ProviderEntry = {
   provider: AiProvider;
   models: readonly string[];
   defaultModel: string;
+};
+
+export type GatewayOptions = {
+  providers: Partial<Record<ProviderId, ProviderEntry>>;
+  defaultProvider: ProviderId;
   timeoutMs: number;
   maxRetries?: number;
   retryDelayMs?: number;
   log: Pick<FastifyBaseLogger, 'info' | 'warn'>;
 };
 
-export type GatewayRequest = Omit<StreamRequest, 'signal'> & { signal?: AbortSignal };
+export type GatewayRequest = Omit<StreamRequest, 'signal'> & {
+  provider: ProviderId;
+  signal?: AbortSignal;
+};
 
 export type Gateway = ReturnType<typeof createGateway>;
+export type AiChoice = { provider: ProviderId; model: string };
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve) => {
@@ -23,23 +39,42 @@ function sleep(ms: number, signal: AbortSignal) {
 }
 
 export function createGateway(opts: GatewayOptions) {
-  const {
-    provider,
-    models,
-    defaultModel,
-    timeoutMs,
-    maxRetries = 2,
-    retryDelayMs = 500,
-    log,
-  } = opts;
+  const { providers, timeoutMs, maxRetries = 2, retryDelayMs = 500, log } = opts;
+  const configured = Object.keys(providers) as ProviderId[];
+  if (!configured.length) throw new Error('createGateway needs at least one provider');
+  // The configured default wins; otherwise the first provider that has a key.
+  const defaultProvider = providers[opts.defaultProvider] ? opts.defaultProvider : configured[0]!;
+
+  const isAllowed = (choice: Partial<AiChoice>): choice is AiChoice =>
+    !!choice.provider &&
+    !!choice.model &&
+    !!providers[choice.provider]?.models.includes(choice.model);
 
   return {
-    models,
-    defaultModel,
+    providers,
+    defaultProvider,
 
-    /** A user preference is honoured only if it is on the server allowlist. */
-    resolveModel(preferred: unknown): string {
-      return typeof preferred === 'string' && models.includes(preferred) ? preferred : defaultModel;
+    /** Default choice: the default provider with its default model. */
+    get defaultChoice(): AiChoice {
+      return { provider: defaultProvider, model: providers[defaultProvider]!.defaultModel };
+    },
+
+    isAllowed,
+
+    /**
+     * Applies a user preference only if it is still allowed by the server: an unconfigured
+     * provider or a model removed from the allowlist falls back to defaults.
+     */
+    resolve(pref: { ai_provider?: unknown; ai_model?: unknown } | null | undefined): AiChoice {
+      const provider = pref?.ai_provider as ProviderId | undefined;
+      const entry = provider ? providers[provider] : undefined;
+      if (!provider || !entry) return this.defaultChoice;
+      const model = pref?.ai_model;
+      return {
+        provider,
+        model:
+          typeof model === 'string' && entry.models.includes(model) ? model : entry.defaultModel,
+      };
     },
 
     /**
@@ -48,7 +83,8 @@ export function createGateway(opts: GatewayOptions) {
      * Logs metadata only: prompts and replies are personal data and are never logged.
      */
     async *stream(req: GatewayRequest): AsyncGenerator<StreamEvent> {
-      if (!models.includes(req.model)) throw new AiError('invalid_request', 'Model not allowed');
+      if (!isAllowed(req)) throw new AiError('invalid_request', 'Model not allowed');
+      const { provider } = providers[req.provider]!;
 
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;

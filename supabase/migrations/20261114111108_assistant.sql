@@ -23,7 +23,8 @@ create table public.messages (
   role text not null check (role in ('user', 'assistant')),
   content text not null check (char_length(content) <= 32000),
   status text not null default 'complete' check (status in ('complete', 'error', 'interrupted')),
-  model text check (char_length(model) <= 64),
+  provider text check (provider in ('gemini', 'openrouter')),
+  model text check (char_length(model) <= 100),
   error_code text check (char_length(error_code) <= 32),
   created_at timestamptz not null default clock_timestamp()
 );
@@ -35,7 +36,8 @@ create table public.ai_usage (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   conversation_id uuid references public.conversations (id) on delete set null,
-  model text not null check (char_length(model) between 1 and 64),
+  provider text not null check (provider in ('gemini', 'openrouter')),
+  model text not null check (char_length(model) between 1 and 100),
   input_tokens integer not null check (input_tokens between 0 and 10000000),
   output_tokens integer not null check (output_tokens between 0 and 10000000),
   -- true when the provider never reported usage (stopped, timed out or failed mid-answer)
@@ -93,7 +95,7 @@ create policy "conversations: delete own" on public.conversations for delete to 
   using (user_id = (select auth.uid()));
 
 -- messages: immutable once written; removed with their conversation.
-grant select, insert (conversation_id, role, content, status, model, error_code)
+grant select, insert (conversation_id, role, content, status, provider, model, error_code)
   on public.messages to authenticated;
 create policy "messages: read own" on public.messages for select to authenticated
   using (
@@ -107,7 +109,7 @@ create policy "messages: append to own conversation" on public.messages for inse
   );
 
 -- ai_usage: append-only ledger.
-grant select, insert (conversation_id, model, input_tokens, output_tokens, estimated)
+grant select, insert (conversation_id, provider, model, input_tokens, output_tokens, estimated)
   on public.ai_usage to authenticated;
 create policy "ai_usage: read own" on public.ai_usage for select to authenticated
   using (user_id = (select auth.uid()));

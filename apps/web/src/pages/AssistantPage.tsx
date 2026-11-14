@@ -17,10 +17,12 @@ import { cn } from '@/lib/utils';
 
 const AI_ERRORS: Record<string, string> = {
   timeout: 'Le modèle n’a pas répondu à temps.',
-  rate_limited: 'Le fournisseur IA est saturé. Réessayez dans un instant.',
+  rate_limited:
+    'Le fournisseur IA limite les requêtes (débit ou quota atteint). Réessayez plus tard ou choisissez un autre modèle dans Paramètres.',
   unavailable: 'Le service IA est momentanément indisponible.',
   auth: 'La clé du fournisseur IA est refusée (configuration du serveur).',
   model_not_found: 'Ce modèle n’est pas disponible avec la clé configurée.',
+  payment_required: 'Le compte du fournisseur IA n’a plus de crédits.',
   invalid_request: 'La requête a été refusée par le modèle.',
   empty_response: 'Le modèle n’a renvoyé aucun texte.',
   internal: 'Une erreur interne est survenue.',
@@ -41,10 +43,11 @@ type BubbleProps = {
   content: string;
   status?: ChatMessage['status'];
   errorCode?: string | null;
+  model?: string | null;
   streaming?: boolean;
 };
 
-function Bubble({ role, content, status, errorCode, streaming }: BubbleProps) {
+function Bubble({ role, content, status, errorCode, model, streaming }: BubbleProps) {
   const mine = role === 'user';
   return (
     <div className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
@@ -65,6 +68,7 @@ function Bubble({ role, content, status, errorCode, streaming }: BubbleProps) {
               : (AI_ERRORS[errorCode ?? ''] ?? AI_ERRORS.internal)}
           </p>
         )}
+        {model && <p className="mt-1.5 text-[10px] text-ink-faint">{model}</p>}
       </div>
     </div>
   );
@@ -303,6 +307,7 @@ function Thread({ conversationId }: { conversationId?: string }) {
             content={m.content}
             status={m.status}
             errorCode={m.error_code}
+            model={m.role === 'assistant' ? m.model : null}
           />
         ))}
         {live && (

@@ -57,3 +57,39 @@ test('chat with LEANA through the real Gemini API', async ({ page, isMobile }) =
   await page.reload();
   await expect(page.getByRole('log', { name: 'Messages' }).locator('[data-role]')).toHaveCount(4);
 });
+
+test('choose OpenRouter in settings and chat through it', async ({ page, isMobile }) => {
+  test.setTimeout(120_000);
+  const configured = await signUpAndOpenAssistant(page, isMobile);
+  test.skip(!configured, 'No AI provider configured on the server.');
+
+  await page.goto('/settings');
+  const openRouter = page.getByRole('option', { name: /^OpenRouter/ });
+  await expect(openRouter).toHaveCount(1);
+  const available = await openRouter.isEnabled();
+  if (!available) {
+    // Honest state without a key: visible, labelled, and impossible to select.
+    await expect(openRouter).toHaveText(/clé absente/);
+  }
+  test.skip(
+    !available,
+    'OPENROUTER_API_KEY absent on the server: real OpenRouter chat NOT verified.',
+  );
+
+  await page.getByLabel('Fournisseur').selectOption('openrouter');
+  await page.getByRole('button', { name: 'Enregistrer l’IA' }).click();
+  await expect(page.getByText('Préférence IA enregistrée.')).toBeVisible();
+
+  await page.goto('/assistant');
+  const composer = page.getByLabel('Message pour LEANA');
+  await composer.fill('Réponds uniquement par le mot « pomme », sans ponctuation.');
+  await composer.press('Enter');
+  await expect(page).toHaveURL(/\/assistant\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  const bubble = page
+    .getByRole('log', { name: 'Messages' })
+    .locator('[data-role="assistant"]')
+    .first();
+  await expect(bubble).toContainText(/pomme/i);
+  // The model caption shows the reply really came from an OpenRouter model id ("vendor/model").
+  await expect(bubble).toContainText(/\w+\/[\w.-]+/);
+});

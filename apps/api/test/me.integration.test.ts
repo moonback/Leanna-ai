@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/env.js';
+import type { AiProvider } from '../src/ai/types.js';
 import { signUp } from './helpers.js';
 
 const env = loadEnv({ ...process.env, NODE_ENV: 'test' });
@@ -14,37 +15,34 @@ describe('/me (integration)', () => {
   let bob: Awaited<ReturnType<typeof signUp>>;
 
   beforeAll(async () => {
-    app = await buildApp(env);
+    // Only Gemini is "configured" here (test double): OpenRouter must be refused.
+    const noop: AiProvider = { name: 'test-double', stream: async function* () {} };
+    app = await buildApp(env, { aiProviders: { gemini: noop } });
     [alice, bob] = await Promise.all([signUp(env, 'Alice'), signUp(env)]);
   });
 
-  it('stores an allowed AI model preference and rejects others', async () => {
-    const bad = await app.inject({
-      method: 'PATCH',
-      url: '/me/preferences',
-      headers: alice.auth,
-      payload: { ai_model: 'gpt-x' },
-    });
-    expect(bad.statusCode).toBe(400);
+  const setPrefs = (payload: Record<string, string | null>) =>
+    app.inject({ method: 'PATCH', url: '/me/preferences', headers: alice.auth, payload });
 
-    const ok = await app.inject({
-      method: 'PATCH',
-      url: '/me/preferences',
-      headers: alice.auth,
-      payload: { ai_model: env.AI_MODELS.at(-1) },
-    });
-    expect(ok.statusCode).toBe(200);
+  it.each([
+    ['an unconfigured provider', { ai_provider: 'openrouter', ai_model: null }],
+    ['a model without provider', { ai_provider: null, ai_model: 'gemini-3.6-flash' }],
+    ['a model outside the allowlist', { ai_provider: 'gemini', ai_model: 'gpt-x' }],
+    ["another provider's model", { ai_provider: 'gemini', ai_model: env.OPENROUTER_DEFAULT_MODEL }],
+    ['an unknown provider', { ai_provider: 'acme', ai_model: null }],
+  ])('refuses %s', async (_, payload) => {
+    expect((await setPrefs(payload)).statusCode).toBe(400);
+  });
+
+  it('stores an allowed provider + model and resets to defaults', async () => {
+    const model = env.GEMINI_MODELS.at(-1)!;
+    expect((await setPrefs({ ai_provider: 'gemini', ai_model: model })).statusCode).toBe(200);
     const me = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
-    expect(me.json().preferences).toEqual({ ai_model: env.AI_MODELS.at(-1) });
+    expect(me.json().preferences).toEqual({ ai_provider: 'gemini', ai_model: model });
 
-    await app.inject({
-      method: 'PATCH',
-      url: '/me/preferences',
-      headers: alice.auth,
-      payload: { ai_model: null },
-    });
+    expect((await setPrefs({ ai_provider: null, ai_model: null })).statusCode).toBe(200);
     const reset = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
-    expect(reset.json().preferences).toEqual({ ai_model: null });
+    expect(reset.json().preferences).toEqual({ ai_provider: null, ai_model: null });
   });
 
   it('rejects a forged token', async () => {

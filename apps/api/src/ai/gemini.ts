@@ -1,20 +1,12 @@
 import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { AiError, type AiProvider } from './types.js';
+import { AiError, aiErrorFromStatus, type AiProvider } from './types.js';
 
 type GeminiClient = Pick<GoogleGenAI, 'models'>;
 
 /** Maps SDK/network failures to gateway error codes. */
 export function toAiError(err: unknown): AiError {
   if (err instanceof AiError) return err;
-  if (err instanceof ApiError) {
-    if (err.status === 429) return new AiError('rate_limited', 'Provider rate limit', true);
-    if (err.status === 401 || err.status === 403)
-      return new AiError('auth', 'Provider rejected the API key');
-    if (err.status === 404)
-      return new AiError('model_not_found', 'Model not available for this key');
-    if (err.status >= 500) return new AiError('unavailable', `Provider error ${err.status}`, true);
-    return new AiError('invalid_request', `Provider rejected the request (${err.status})`);
-  }
+  if (err instanceof ApiError) return aiErrorFromStatus(err.status);
   // fetch() network failures surface as TypeError.
   if (err instanceof TypeError) return new AiError('unavailable', 'Network error', true);
   return new AiError('unavailable', 'Unexpected provider error');
@@ -56,7 +48,8 @@ export function geminiProvider(
             };
           }
         }
-        yield { type: 'usage', inputTokens: usage?.prompt ?? 0, outputTokens: usage?.output ?? 0 };
+        // No usage reported: say nothing rather than "0", the caller then records an estimate.
+        if (usage) yield { type: 'usage', inputTokens: usage.prompt, outputTokens: usage.output };
       } catch (err) {
         throw toAiError(err);
       }

@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { AI_CONFIG, json, mockApi, renderApp, sseResponse } from './test/render';
+import {
+  AI_CONFIG,
+  AI_CONFIG_BOTH,
+  AI_CONFIG_NONE,
+  json,
+  ME,
+  mockApi,
+  renderApp,
+  sseResponse,
+} from './test/render';
 import { fakeAuth } from './test/fakeSupabase';
 
 const C1 = '11111111-1111-4111-8111-111111111111';
@@ -27,7 +36,7 @@ describe('assistant', () => {
   it('explains that the assistant is not configured and blocks sending', async () => {
     fakeAuth.signIn();
     mockApi({
-      'GET /ai/config': () => json({ configured: false, models: [], default_model: null }),
+      'GET /ai/config': () => json(AI_CONFIG_NONE),
     });
     renderApp('/assistant');
     expect(await screen.findByText(/n’est pas configuré sur ce serveur/)).toBeInTheDocument();
@@ -138,17 +147,71 @@ describe('assistant', () => {
 });
 
 describe('AI settings', () => {
-  it('saves the chosen model', async () => {
+  const lastPatch = (spy: ReturnType<typeof mockApi>) => {
+    const call = spy.mock.calls.findLast(([url]) => String(url).endsWith('/me/preferences'));
+    return JSON.parse(String(call?.[1]?.body));
+  };
+
+  it('lets the user pick OpenRouter and one of its models', async () => {
     fakeAuth.signIn();
     const fetchSpy = mockApi({
-      'PATCH /me/preferences': () => json({ ai_model: AI_CONFIG.models[1] }),
+      'GET /ai/config': () => json(AI_CONFIG_BOTH),
+      'PATCH /me/preferences': () => json({}),
     });
     renderApp('/settings');
-    const select = await screen.findByLabelText('Modèle');
-    fireEvent.change(select, { target: { value: AI_CONFIG.models[1] } });
+    const provider = await screen.findByLabelText('Fournisseur');
+    expect(screen.getByLabelText('Modèle')).toBeDisabled();
+
+    fireEvent.change(provider, { target: { value: 'openrouter' } });
+    const model = screen.getByLabelText('Modèle');
+    expect(model).toBeEnabled();
+    expect(
+      within(model)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([
+      'Par défaut (anthropic/claude-haiku-5.5)',
+      'anthropic/claude-haiku-5.5',
+      'mistralai/mistral-small-2603',
+    ]);
+    fireEvent.change(model, { target: { value: 'mistralai/mistral-small-2603' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer l’IA' }));
 
     expect(await screen.findByText('Préférence IA enregistrée.')).toBeInTheDocument();
-    const patch = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/me/preferences'));
-    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ ai_model: AI_CONFIG.models[1] });
+    expect(lastPatch(fetchSpy)).toEqual({
+      ai_provider: 'openrouter',
+      ai_model: 'mistralai/mistral-small-2603',
+    });
+  });
+
+  it('shows a provider without server key as unavailable', async () => {
+    fakeAuth.signIn();
+    mockApi(); // Gemini configured, OpenRouter without key
+    renderApp('/settings');
+    const option = await screen.findByRole('option', { name: /OpenRouter — clé absente/ });
+    expect(option).toBeDisabled();
+    expect(screen.getByRole('option', { name: 'Google Gemini' })).toBeEnabled();
+  });
+
+  it('switching provider resets the model, and "default" sends nulls', async () => {
+    fakeAuth.signIn();
+    const fetchSpy = mockApi({
+      'GET /me': () =>
+        json({
+          ...ME,
+          preferences: { ai_provider: 'gemini', ai_model: AI_CONFIG.providers[0]!.models[2] },
+        }),
+      'GET /ai/config': () => json(AI_CONFIG_BOTH),
+      'PATCH /me/preferences': () => json({}),
+    });
+    renderApp('/settings');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Modèle')).toHaveValue('gemini-3.5-flash-lite'),
+    );
+    fireEvent.change(screen.getByLabelText('Fournisseur'), { target: { value: '' } });
+    expect(screen.getByLabelText('Modèle')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer l’IA' }));
+    await screen.findByText('Préférence IA enregistrée.');
+    expect(lastPatch(fetchSpy)).toEqual({ ai_provider: null, ai_model: null });
   });
 });
