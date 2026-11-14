@@ -11,17 +11,17 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 7'], channel } },
   ],
   webServer: [
+    // No watch mode and no reuse: always test the current code, and leave no orphan process.
     {
-      command: 'pnpm --filter @leana/api dev',
+      command: 'node --env-file-if-exists=.env --import tsx src/server.ts',
       url: 'http://127.0.0.1:3001/health',
-      reuseExistingServer: true,
-      cwd: '../..',
-      env: { CORS_ORIGINS: 'http://localhost:4173' },
+      reuseExistingServer: false,
+      cwd: '../api',
     },
     {
       command: 'pnpm build && pnpm preview --port 4173 --strictPort',
       url: 'http://localhost:4173',
-      reuseExistingServer: true,
+      reuseExistingServer: false,
     },
   ],
 });

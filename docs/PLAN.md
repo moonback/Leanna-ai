@@ -25,3 +25,17 @@
 - [x] API Fastify `/health` + OpenAPI `/docs`
 - [x] Tests Vitest (4 API + 5 web) + Playwright smoke (4 : desktop + mobile, vraie API)
 - [x] lint / typecheck / test / build verts
+
+## Checklist Phase 2
+
+- [x] Supabase local (ports 593xx pour cohabiter avec d'autres projets locaux)
+- [x] Migration `foundations` : profiles, workspaces, memberships, preferences, consents
+- [x] RLS sur toutes les tables, `GRANT` explicites (rien pour `anon`), helpers `security definer` dans le schéma non exposé `private`
+- [x] Triggers : compte → profil + espace personnel (owner) + préférences ; suppression RGPD sans workspace orphelin
+- [x] `supabase db advisors` : aucune alerte
+- [x] **Preuve** : pgTAP `supabase/tests/database/rls_isolation.test.sql` (29 assertions : isolation entre 2 utilisateurs, validation en base)
+- [x] API : vérification JWT (`getClaims`), client Supabase agissant au nom de l'utilisateur, `GET /me`, `PATCH /me/profile` (validation zod)
+- [x] Web : inscription, connexion, déconnexion, routes protégées (sans open redirect), Paramètres (profil, espaces)
+- [x] **Preuve** : E2E Playwright inscription → profil → déconnexion → connexion (desktop + mobile, stack réelle)
+- [ ] `packages/shared` : toujours reporté (un seul contrat `/me`, dupliqué en types web) — à créer en Phase 3
+- [ ] Hors périmètre Phase 2 : réinitialisation du mot de passe, invitations dans un workspace, consentements dans l'UI, export RGPD

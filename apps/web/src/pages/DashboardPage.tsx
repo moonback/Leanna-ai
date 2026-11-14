@@ -1,8 +1,10 @@
 import { Activity, Calendar, CheckSquare, Rocket } from 'lucide-react';
 import { EmptyState } from '@/components/EmptyState';
+import { useMe } from '@/lib/useMe';
 
 // No data source exists yet: every panel shows a real empty state, never placeholder data.
 export function DashboardPage() {
+  const name = useMe().data?.profile.display_name;
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <section className="glass relative overflow-hidden p-6 md:p-8">
@@ -12,7 +14,7 @@ export function DashboardPage() {
         />
         <p className="text-xs uppercase tracking-[0.2em] text-cyan">Tableau de bord</p>
         <h1 className="mt-2 font-display text-2xl font-semibold md:text-3xl">
-          Bienvenue sur LEANA
+          {name ? `Bonjour, ${name}` : 'Bienvenue sur LEANA'}
         </h1>
         <p className="mt-2 max-w-xl text-sm text-ink-muted">
           Votre assistant opérationnel : il comprend, planifie, demande votre accord, exécute et
