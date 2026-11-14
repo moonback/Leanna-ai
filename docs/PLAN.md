@@ -39,3 +39,16 @@
 - [x] **Preuve** : E2E Playwright inscription → profil → déconnexion → connexion (desktop + mobile, stack réelle)
 - [ ] `packages/shared` : toujours reporté (un seul contrat `/me`, dupliqué en types web) — à créer en Phase 3
 - [ ] Hors périmètre Phase 2 : réinitialisation du mot de passe, invitations dans un workspace, consentements dans l'UI, export RGPD
+
+## Checklist Phase 3
+
+- [x] Migration `assistant` : conversations, messages, journal `ai_usage` (ajout seul), fonction de quota `security invoker`
+- [x] **Preuve** : pgTAP `assistant.test.sql` (22 assertions : isolation, contraintes, immuabilité, suppression RGPD)
+- [x] AI Gateway : interface fournisseur + adaptateur Gemini, liste blanche, timeout, nouvelles tentatives avant le premier fragment, erreurs normalisées, journaux sans contenu
+- [x] API : conversations (CRUD), envoi en SSE, quota quotidien, préférence de modèle, 503 explicite sans clé
+- [x] Web : module Assistant (liste, fil, streaming, arrêt, états non configuré, quota et erreur), choix du modèle dans Paramètres
+- [x] **Preuve** : E2E dialogue réel avec Gemini (desktop + mobile : réponse, suite avec historique, persistance après rechargement)
+- [x] Second fournisseur **OpenRouter** (adaptateur fetch, erreurs en cours de flux, 402) ; choix fournisseur + modèle dans Paramètres, validé côté serveur
+- [ ] **Preuve OpenRouter réelle** : E2E prêt, ignoré tant que `OPENROUTER_API_KEY` est absente
+- [ ] Bascule automatique vers un modèle de secours quand le modèle choisi est surchargé
+- [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)

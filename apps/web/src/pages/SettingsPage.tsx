@@ -1,11 +1,128 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { updateProfile, type Profile } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  fetchAiConfig,
+  updatePreferences,
+  updateProfile,
+  type AiPreference,
+  type Profile,
+  type ProviderId,
+} from '@/lib/api';
 import { useMe } from '@/lib/useMe';
 import { Field, FormError, Input, Select, SubmitButton } from '@/components/Form';
 
 const ROLE_LABELS = { owner: 'Propriétaire', admin: 'Administrateur', member: 'Membre' } as const;
 const TIME_ZONES = Intl.supportedValuesOf('timeZone');
+
+/**
+ * "Configurer son IA": pick the provider, then one of its models. Lists come from the
+ * server allowlist; a provider without a key on the server is shown but cannot be chosen.
+ */
+function AiSettings({ current }: { current: AiPreference }) {
+  const queryClient = useQueryClient();
+  const config = useQuery({
+    queryKey: ['ai-config'],
+    queryFn: ({ signal }) => fetchAiConfig(signal),
+  });
+  const [provider, setProvider] = useState<ProviderId | ''>(current.ai_provider ?? '');
+  const [model, setModel] = useState(current.ai_model ?? '');
+  const mutation = useMutation({
+    mutationFn: updatePreferences,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+  });
+
+  const providers = config.data?.providers ?? [];
+  const selected = providers.find((p) => p.id === provider);
+  const fallback = config.data?.default;
+  const fallbackLabel = fallback
+    ? `${providers.find((p) => p.id === fallback.provider)?.label} · ${fallback.model}`
+    : '';
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    mutation.mutate({ ai_provider: provider || null, ai_model: (provider && model) || null });
+  }
+
+  return (
+    <section className="glass p-6" aria-labelledby="ai-title">
+      <h2 id="ai-title" className="mb-1 text-sm font-medium">
+        Intelligence artificielle
+      </h2>
+      <p className="mb-5 text-xs text-ink-faint">
+        Choisissez le fournisseur et le modèle utilisés par LEANA. Les clés restent sur le serveur.
+      </p>
+      {config.isPending && <p className="text-sm text-ink-muted">Chargement…</p>}
+      {config.isError && <FormError message="Impossible de charger la configuration IA." />}
+      {config.data && !config.data.configured && (
+        <p className="text-sm text-warning">
+          Aucun fournisseur IA n’est configuré sur ce serveur (clés Gemini et OpenRouter absentes).
+        </p>
+      )}
+      {config.data?.configured && (
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field id="ai_provider" label="Fournisseur">
+              <Select
+                id="ai_provider"
+                value={provider}
+                onChange={(e) => {
+                  setProvider(e.target.value as ProviderId | '');
+                  setModel('');
+                  mutation.reset();
+                }}
+              >
+                <option value="">Par défaut ({fallbackLabel})</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id} disabled={!p.configured}>
+                    {p.label}
+                    {p.configured ? '' : ' — clé absente sur le serveur'}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              id="ai_model"
+              label="Modèle"
+              hint={
+                selected
+                  ? 'Modèles autorisés par le serveur.'
+                  : 'Choisissez d’abord un fournisseur.'
+              }
+            >
+              <Select
+                id="ai_model"
+                value={model}
+                disabled={!selected}
+                onChange={(e) => {
+                  setModel(e.target.value);
+                  mutation.reset();
+                }}
+              >
+                <option value="">
+                  {selected ? `Par défaut (${selected.default_model})` : '—'}
+                </option>
+                {selected?.models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <FormError message={mutation.error?.message ?? null} />
+          {mutation.isSuccess && (
+            <p role="status" className="text-sm text-success">
+              Préférence IA enregistrée.
+            </p>
+          )}
+          <div className="sm:w-48">
+            <SubmitButton pending={mutation.isPending}>Enregistrer l’IA</SubmitButton>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
 
 function ProfileForm({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient();
@@ -100,6 +217,8 @@ export function SettingsPage() {
             <p className="mb-5 text-xs text-ink-faint">{me.data.email}</p>
             <ProfileForm profile={me.data.profile} />
           </section>
+
+          <AiSettings key={JSON.stringify(me.data.preferences)} current={me.data.preferences} />
 
           <section className="glass p-6" aria-labelledby="ws-title">
             <h2 id="ws-title" className="mb-3 text-sm font-medium">

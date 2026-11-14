@@ -29,7 +29,7 @@ export type AppModule = {
 // Only modules with `phase: null` have routes. Others render disabled so no link is dead.
 export const MODULES: AppModule[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, phase: null },
-  { label: 'Assistant', path: '/assistant', icon: MessageSquare, phase: 3 },
+  { label: 'Assistant', path: '/assistant', icon: MessageSquare, phase: null },
   { label: 'Missions', path: '/missions', icon: Rocket, phase: 5 },
   { label: 'Mémoire', path: '/memory', icon: Brain, phase: 4 },
   { label: 'Agent Studio', path: '/agents', icon: Bot, phase: 6 },
