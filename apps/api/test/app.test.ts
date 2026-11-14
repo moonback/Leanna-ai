@@ -16,7 +16,7 @@ describe('api', () => {
     const app = await buildApp(env);
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'ok', version: '0.6.0' });
+    expect(res.json()).toMatchObject({ status: 'ok', version: '0.7.0' });
   });
 
   it('exposes an OpenAPI document listing the routes', async () => {

@@ -135,6 +135,135 @@ export const TOOLS = [
       return { forgotten: memory_id };
     },
   }),
+  define({
+    name: 'tasks.list',
+    risk: 'read',
+    description: "Tâches de l'espace de travail (ouvertes par défaut), triées par échéance.",
+    input: z
+      .object({
+        status: z.enum(['open', 'todo', 'in_progress', 'done', 'all']).default('open'),
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+      .strict(),
+    describe: () => 'Lister les tâches',
+    async run(ctx, { status, limit }) {
+      const rows = await ctx.sql`
+        select id, title, status, priority, due_at, project
+        from private.tool_tasks_list(${ctx.callId}, ${status}, ${limit})`;
+      return { tasks: rows.map((r) => ({ ...r })) };
+    },
+  }),
+  define({
+    name: 'tasks.create',
+    risk: 'write',
+    description: 'Ajoute une tâche (titre, notes, priorité, échéance ISO 8601 avec fuseau).',
+    input: z
+      .object({
+        title: z.string().trim().min(1).max(200),
+        notes: z.string().trim().max(4000).optional(),
+        priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
+        due_at: z.iso.datetime({ offset: true }).optional(),
+      })
+      .strict(),
+    describe: (i) => `Créer la tâche « ${i.title} »${i.due_at ? ` (échéance ${i.due_at})` : ''}`,
+    async run(ctx, { title, notes, priority, due_at }) {
+      const [row] = await ctx.sql<{ id: string }[]>`
+        select private.tool_tasks_create(${ctx.callId}, ${title}, ${notes ?? null},
+          ${priority}, ${due_at ?? null}) as id`;
+      return { id: row!.id, created: title };
+    },
+  }),
+  define({
+    name: 'tasks.complete',
+    risk: 'write',
+    description: 'Marque une tâche comme faite (identifiant obtenu avec tasks.list).',
+    input: z.object({ task_id: z.uuid() }).strict(),
+    describe: (i) => `Terminer la tâche ${i.task_id}`,
+    async run(ctx, { task_id }) {
+      const [row] = await ctx.sql<{ done: boolean }[]>`
+        select private.tool_tasks_complete(${ctx.callId}, ${task_id}) as done`;
+      if (!row!.done) throw new ToolError('Tâche introuvable ou déjà terminée');
+      return { completed: task_id };
+    },
+  }),
+  define({
+    name: 'calendar.list',
+    risk: 'read',
+    description: 'Événements entre deux dates ISO 8601 (par défaut : les 7 prochains jours).',
+    input: z
+      .object({
+        from: z.iso.datetime({ offset: true }).optional(),
+        to: z.iso.datetime({ offset: true }).optional(),
+      })
+      .strict(),
+    describe: () => 'Consulter l’agenda',
+    async run(ctx, { from, to }) {
+      const start = from ? new Date(from) : new Date();
+      const end = to ? new Date(to) : new Date(start.getTime() + 7 * 86_400_000);
+      if (end < start) throw new ToolError('« to » doit suivre « from »');
+      const rows = await ctx.sql`
+        select id, title, starts_at, ends_at, all_day, location
+        from private.tool_calendar_list(${ctx.callId}, ${start}, ${end})`;
+      return { events: rows.map((r) => ({ ...r })) };
+    },
+  }),
+  define({
+    name: 'calendar.create',
+    risk: 'write',
+    description: "Ajoute un événement à l'agenda (début et fin ISO 8601 avec fuseau).",
+    input: z
+      .object({
+        title: z.string().trim().min(1).max(200),
+        starts_at: z.iso.datetime({ offset: true }),
+        ends_at: z.iso.datetime({ offset: true }),
+        all_day: z.boolean().default(false),
+        location: z.string().trim().max(200).optional(),
+        description: z.string().trim().max(4000).optional(),
+      })
+      .strict()
+      .refine((e) => new Date(e.ends_at) >= new Date(e.starts_at), 'ends_at avant starts_at'),
+    describe: (i) => `Ajouter « ${i.title} » à l’agenda le ${i.starts_at}`,
+    async run(ctx, e) {
+      const [row] = await ctx.sql<{ id: string }[]>`
+        select private.tool_calendar_create(${ctx.callId}, ${e.title}, ${e.starts_at},
+          ${e.ends_at}, ${e.all_day}, ${e.location ?? null}, ${e.description ?? null}) as id`;
+      return { id: row!.id, created: e.title };
+    },
+  }),
+  define({
+    name: 'documents.search',
+    risk: 'read',
+    description: "Recherche plein texte dans les documents de l'espace de travail.",
+    input: z
+      .object({
+        query: z.string().trim().min(1).max(500),
+        limit: z.number().int().min(1).max(10).default(5),
+      })
+      .strict(),
+    describe: (i) => `Chercher « ${i.query} » dans les documents`,
+    async run(ctx, { query, limit }) {
+      const rows = await ctx.sql`
+        select id, title, snippet from private.tool_documents_search(${ctx.callId}, ${query}, ${limit})`;
+      return { documents: rows.map((r) => ({ ...r })) };
+    },
+  }),
+  define({
+    name: 'documents.create',
+    risk: 'write',
+    description: 'Enregistre un document (titre et contenu texte).',
+    input: z
+      .object({
+        title: z.string().trim().min(1).max(200),
+        content: z.string().max(100_000),
+      })
+      .strict(),
+    describe: (i) => `Enregistrer le document « ${i.title} » (${i.content.length} caractères)`,
+    async run(ctx, { title, content }) {
+      const [row] = await ctx.sql<{ id: string }[]>`
+        select private.tool_documents_create(${ctx.callId}, ${title}, ${content}) as id`;
+      return { id: row!.id, created: title };
+    },
+  }),
 ];
 
 export type Tool = (typeof TOOLS)[number];
