@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/env.js';
 import { AiError, type AiProvider, type StreamEvent, type StreamRequest } from '../src/ai/types.js';
+import { EXTRACTION_SYSTEM } from '../src/memory/extract.js';
 import { parseSse, signUp } from './helpers.js';
 
 // Never reach the real provider from these tests, even if a key is in .env.
@@ -25,9 +26,16 @@ const defaultEcho: Behaviour = async function* (req) {
 function fakeProvider() {
   const calls: StreamRequest[] = [];
   let behaviour = defaultEcho;
+  // Memory extraction calls are answered separately (nothing to remember) and not recorded:
+  // these tests are about chat replies; memory.integration.test.ts covers extraction.
   const provider: AiProvider = {
     name: 'test-double',
     stream: (req) => {
+      if (req.system === EXTRACTION_SYSTEM) {
+        return (async function* () {
+          yield { type: 'text' as const, text: '{"operations":[]}' };
+        })();
+      }
       calls.push(req);
       return behaviour(req);
     },
@@ -82,6 +90,7 @@ describe('assistant (integration)', () => {
     expect(res.json()).toEqual({
       configured: true,
       default: { provider: 'gemini', model: env.GEMINI_DEFAULT_MODEL },
+      embeddings: null,
       providers: [
         {
           id: 'gemini',

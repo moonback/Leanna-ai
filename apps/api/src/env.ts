@@ -49,6 +49,16 @@ const EnvSchema = z
     AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).default(2048),
     // Per-user cap over a rolling 24 h window (input + output + thinking tokens).
     AI_DAILY_TOKEN_LIMIT: z.coerce.number().int().min(1).default(200_000),
+
+    // Memory. Embeddings make recall semantic; without them it stays lexical (full-text).
+    // 'auto' = Gemini if its key is set, else OpenRouter if its key is set, else none.
+    EMBEDDINGS_PROVIDER: z.enum(['auto', 'none', ...PROVIDER_IDS]).default('auto'),
+    GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
+    OPENROUTER_EMBEDDING_MODEL: z.string().min(1).default('openai/text-embedding-3-small'),
+    // Cosine distance above which a memory is not semantically related. Not calibrated
+    // against a real embedding model yet (no key during development): tune with real data.
+    MEMORY_MAX_DISTANCE: z.coerce.number().min(0).max(2).default(0.5),
+    MEMORY_RECALL_COUNT: z.coerce.number().int().min(1).max(50).default(8),
   })
   .refine((e) => e.GEMINI_MODELS.includes(e.GEMINI_DEFAULT_MODEL), {
     message: 'GEMINI_DEFAULT_MODEL must be listed in GEMINI_MODELS',

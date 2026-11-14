@@ -5,6 +5,7 @@ import { requireAuth } from '../plugins/auth.js';
 import type { Gateway } from '../ai/gateway.js';
 import { effectivePreference } from '../ai/catalog.js';
 import { PROVIDER_IDS } from '../ai/types.js';
+import { memoryEnabled } from './workspace.js';
 
 const isTimeZone = (tz: string) => {
   try {
@@ -32,9 +33,19 @@ export const ProfilePatch = z
 
 const PROFILE_COLUMNS = 'display_name, avatar_url, locale, timezone';
 
+// AI choice (both keys together) and/or the memory switch.
 const PreferencesBody = z
-  .object({ ai_provider: z.enum(PROVIDER_IDS).nullable(), ai_model: z.string().min(1).nullable() })
-  .strict();
+  .object({
+    ai_provider: z.enum(PROVIDER_IDS).nullable(),
+    ai_model: z.string().min(1).nullable(),
+    memory_enabled: z.boolean(),
+  })
+  .partial()
+  .strict()
+  .refine((p) => 'ai_provider' in p === 'ai_model' in p, {
+    message: 'ai_provider and ai_model go together',
+  })
+  .refine((p) => Object.keys(p).length > 0, 'Nothing to update');
 
 export async function meRoutes(app: FastifyInstance, opts: { gateway: Gateway | null }) {
   const { gateway } = opts;
@@ -68,7 +79,10 @@ export async function meRoutes(app: FastifyInstance, opts: { gateway: Gateway | 
         id: userId,
         email,
         profile: profile.data,
-        preferences: effectivePreference(preferences.data.settings, gateway),
+        preferences: {
+          ...effectivePreference(preferences.data.settings, gateway),
+          memory_enabled: memoryEnabled(preferences.data.settings),
+        },
         workspaces: memberships.data.map((m) => ({ ...m.workspace, role: m.role })),
       };
     },
@@ -109,7 +123,7 @@ export async function meRoutes(app: FastifyInstance, opts: { gateway: Gateway | 
     {
       schema: {
         tags: ['account'],
-        summary: 'Choose the AI provider and model',
+        summary: 'Choose the AI provider and model, turn memory on or off',
         security: [{ bearer: [] }],
         body: z.toJSONSchema(PreferencesBody, { target: 'draft-07' }),
       },
@@ -118,18 +132,22 @@ export async function meRoutes(app: FastifyInstance, opts: { gateway: Gateway | 
       const { db, userId } = requireAuth(req);
       const parsed = PreferencesBody.safeParse(req.body);
       if (!parsed.success) throw httpError(400, z.prettifyError(parsed.error));
-      const { ai_provider, ai_model } = parsed.data;
+      const body = parsed.data;
+      const { ai_provider = null, ai_model = null } = body;
+      const setsAi = 'ai_provider' in body;
 
-      if (!ai_provider && ai_model) throw httpError(400, 'Choose a provider before a model');
-      if (ai_provider && !gateway?.providers[ai_provider]) {
-        throw httpError(400, 'This AI provider is not configured on the server');
-      }
-      if (
-        ai_provider &&
-        ai_model &&
-        !gateway!.isAllowed({ provider: ai_provider, model: ai_model })
-      ) {
-        throw httpError(400, 'This model is not allowed for this provider');
+      if (setsAi) {
+        if (!ai_provider && ai_model) throw httpError(400, 'Choose a provider before a model');
+        if (ai_provider && !gateway?.providers[ai_provider]) {
+          throw httpError(400, 'This AI provider is not configured on the server');
+        }
+        if (
+          ai_provider &&
+          ai_model &&
+          !gateway!.isAllowed({ provider: ai_provider, model: ai_model })
+        ) {
+          throw httpError(400, 'This model is not allowed for this provider');
+        }
       }
 
       const current = await db
@@ -139,14 +157,20 @@ export async function meRoutes(app: FastifyInstance, opts: { gateway: Gateway | 
         .single();
       if (current.error) throw current.error;
       const settings = { ...current.data.settings };
-      delete settings.ai_provider;
-      delete settings.ai_model;
-      if (ai_provider) settings.ai_provider = ai_provider;
-      if (ai_model) settings.ai_model = ai_model;
+      if (setsAi) {
+        delete settings.ai_provider;
+        delete settings.ai_model;
+        if (ai_provider) settings.ai_provider = ai_provider;
+        if (ai_model) settings.ai_model = ai_model;
+      }
+      if (body.memory_enabled !== undefined) settings.memory_enabled = body.memory_enabled;
 
       const { error } = await db.from('preferences').update({ settings }).eq('user_id', userId);
       if (error) throw error;
-      return { ai_provider, ai_model };
+      return {
+        ...effectivePreference(settings, gateway),
+        memory_enabled: memoryEnabled(settings),
+      };
     },
   );
 }
