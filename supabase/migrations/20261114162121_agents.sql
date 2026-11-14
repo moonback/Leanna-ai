@@ -316,8 +316,10 @@ language sql stable security definer set search_path = '' as $$
 $$;
 revoke execute on function private.tool_call_user from public;
 
+-- Vectors arrive as text ('[0.1,…]') and are cast here: the worker needs no access to the
+-- `extensions` schema.
 create function private.tool_memory_search(
-  p_call uuid, p_query text, p_embedding extensions.vector(768), p_model text,
+  p_call uuid, p_query text, p_embedding text, p_model text,
   p_count integer, p_max_distance double precision
 )
 returns table (id uuid, kind text, content text, importance smallint)
@@ -330,14 +332,14 @@ begin
   end if;
   return query
     select r.id, r.kind, r.content, r.importance
-    from private.match_memories_for(uid, p_query, p_embedding, p_model,
+    from private.match_memories_for(uid, p_query, p_embedding::extensions.vector, p_model,
                                     least(p_count, 20), p_max_distance, null) r;
 end;
 $$;
 
 create function private.tool_memory_remember(
   p_call uuid, p_kind text, p_content text, p_importance smallint,
-  p_embedding extensions.vector(768), p_model text
+  p_embedding text, p_model text
 )
 returns uuid
 language plpgsql security definer set search_path = '' as $$
@@ -353,7 +355,7 @@ begin
   from public.tool_calls c join public.missions mi on mi.id = c.mission_id where c.id = p_call;
   insert into public.memories
     (workspace_id, user_id, kind, content, importance, source, embedding, embedding_model)
-  values (ws, uid, p_kind, p_content, p_importance, 'agent', p_embedding,
+  values (ws, uid, p_kind, p_content, p_importance, 'agent', p_embedding::extensions.vector,
           case when p_embedding is null then null else p_model end)
   returning id into mem;
   return mem;

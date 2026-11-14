@@ -17,6 +17,7 @@ const CreateBody = z
   .object({
     goal: z.string().trim().min(1).max(4000),
     title: z.string().trim().min(1).max(120).optional(),
+    agent_id: z.uuid().nullable().optional(),
   })
   .strict();
 const DecideBody = z.object({ decision: z.enum(['approved', 'rejected']) }).strict();
@@ -30,10 +31,13 @@ const MarkRead = z
   .refine((b) => !!b.ids !== !!b.all, 'Send either ids or all');
 
 const MISSION_COLUMNS =
-  'id, title, goal, status, provider, model, result, error_code, created_at, updated_at, finished_at';
+  'id, title, goal, status, provider, model, agent_id, result, error_code, created_at, updated_at, finished_at';
 const STEP_COLUMNS =
-  'id, position, title, instruction, requires_approval, status, attempt, output, error_code, started_at, finished_at';
-const APPROVAL_COLUMNS = 'id, mission_id, step_id, kind, summary, status, decided_at, created_at';
+  'id, position, title, instruction, requires_approval, status, attempt, failures, output, error_code, started_at, finished_at';
+const APPROVAL_COLUMNS =
+  'id, mission_id, step_id, tool_call_id, kind, summary, status, decided_at, created_at';
+const TOOL_CALL_COLUMNS =
+  'id, step_id, tool, input, status, output, error, created_at, finished_at';
 
 function parse<T extends z.ZodType>(schema: T, input: unknown): z.infer<T> {
   const parsed = schema.safeParse(input ?? {});
@@ -98,12 +102,18 @@ export async function missionRoutes(app: FastifyInstance, opts: MissionOptions) 
       if (Number(used.data) >= opts.dailyTokenLimit) throw httpError(429, 'Daily AI quota reached');
 
       const { provider, model } = gateway.resolve(prefs.data.settings);
+      if (body.agent_id) {
+        const agent = await db.from('agents').select('id').eq('id', body.agent_id).maybeSingle();
+        if (agent.error) throw agent.error;
+        if (!agent.data) throw httpError(400, 'Unknown agent');
+      }
       const title = body.title ?? body.goal.replace(/\s+/g, ' ').slice(0, 80);
       const { data, error } = await db
         .from('missions')
         .insert({
           workspace_id: await defaultWorkspaceId(db, userId),
           goal: body.goal,
+          agent_id: body.agent_id ?? null,
           title,
           provider,
           model,
@@ -122,14 +132,25 @@ export async function missionRoutes(app: FastifyInstance, opts: MissionOptions) 
     async (req) => {
       const { db } = requireAuth(req);
       const { id } = parse(IdParams, req.params);
-      const [mission, steps, approvals] = await Promise.all([
+      const [mission, steps, approvals, calls] = await Promise.all([
         db.from('missions').select(MISSION_COLUMNS).eq('id', id).maybeSingle(),
         db.from('mission_steps').select(STEP_COLUMNS).eq('mission_id', id).order('position'),
         db.from('approvals').select(APPROVAL_COLUMNS).eq('mission_id', id).order('created_at'),
+        db.from('tool_calls').select(TOOL_CALL_COLUMNS).eq('mission_id', id).order('created_at'),
       ]);
-      for (const r of [mission, steps, approvals]) if (r.error) throw r.error;
+      for (const r of [mission, steps, approvals, calls]) if (r.error) throw r.error;
       if (!mission.data) throw httpError(404, 'Mission not found');
-      return { ...mission.data, steps: steps.data, approvals: approvals.data };
+      const agent = mission.data.agent_id
+        ? (await db.from('agents').select('id, name').eq('id', mission.data.agent_id).maybeSingle())
+            .data
+        : null;
+      return {
+        ...mission.data,
+        agent,
+        steps: steps.data,
+        approvals: approvals.data,
+        tool_calls: calls.data,
+      };
     },
   );
 
@@ -184,8 +205,9 @@ export async function missionRoutes(app: FastifyInstance, opts: MissionOptions) 
         .maybeSingle();
       conflict(error);
       if (!data) throw httpError(404, 'Approval not found');
-      // A refusal stops the mission now; an approval lets the worker carry on.
-      if (decision === 'rejected') {
+      // Refusing a plan or a step stops the mission now. Any other decision (including
+      // refusing one tool call, which the agent then works without) lets the worker go on.
+      if (decision === 'rejected' && data.kind !== 'tool') {
         const cancel = await db
           .from('missions')
           .update({ status: 'cancelled' })

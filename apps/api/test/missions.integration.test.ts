@@ -355,7 +355,7 @@ describe('missions (integration)', () => {
       { mission_id: string; kind: string; summary: string }[]
     >();
     expect(activity.find((a) => a.mission_id === id && a.kind === 'step.retried')?.summary).toBe(
-      'Étape 1 reprise (tentative 2) : Étape A',
+      'Étape 1 reprise après incident (1) : Étape A',
     );
   });
 
