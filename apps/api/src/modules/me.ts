@@ -1,6 +1,7 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { httpError } from '../http.js';
+import { requireAuth } from '../plugins/auth.js';
 
 const isTimeZone = (tz: string) => {
   try {
@@ -28,12 +29,7 @@ export const ProfilePatch = z
 
 const PROFILE_COLUMNS = 'display_name, avatar_url, locale, timezone';
 
-function auth(req: FastifyRequest) {
-  if (!req.auth) throw httpError(401, 'Unauthenticated');
-  return req.auth;
-}
-
-export async function meRoutes(app: FastifyInstance) {
+export async function meRoutes(app: FastifyInstance, opts: { aiModels: readonly string[] }) {
   app.addHook('preHandler', app.authenticate);
 
   app.get(
@@ -46,22 +42,26 @@ export async function meRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { db, userId, email } = auth(req);
-      const [profile, memberships] = await Promise.all([
+      const { db, userId, email } = requireAuth(req);
+      const [profile, memberships, preferences] = await Promise.all([
         db.from('profiles').select(PROFILE_COLUMNS).eq('id', userId).single(),
         db
           .from('memberships')
           .select('role, workspace:workspaces!inner(id, name)')
           .eq('user_id', userId)
           .order('created_at'),
+        db.from('preferences').select('settings').eq('user_id', userId).single(),
       ]);
       if (profile.error) throw profile.error;
       if (memberships.error) throw memberships.error;
+      if (preferences.error) throw preferences.error;
 
+      const aiModel = preferences.data.settings?.ai_model;
       return {
         id: userId,
         email,
         profile: profile.data,
+        preferences: { ai_model: opts.aiModels.includes(aiModel) ? aiModel : null },
         workspaces: memberships.data.map((m) => ({ ...m.workspace, role: m.role })),
       };
     },
@@ -78,7 +78,7 @@ export async function meRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { db, userId } = auth(req);
+      const { db, userId } = requireAuth(req);
       const parsed = ProfilePatch.safeParse(req.body);
       if (!parsed.success) throw httpError(400, z.prettifyError(parsed.error));
 
@@ -92,6 +92,40 @@ export async function meRoutes(app: FastifyInstance) {
       if (error && ['22023', '23514'].includes(error.code)) throw httpError(400, error.message);
       if (error) throw error;
       return data;
+    },
+  );
+
+  // "Configurer son IA": the chosen model must be on the server allowlist (null = default).
+  app.patch(
+    '/me/preferences',
+    {
+      schema: {
+        tags: ['account'],
+        summary: 'Update assistant preferences',
+        security: [{ bearer: [] }],
+      },
+    },
+    async (req) => {
+      const { db, userId } = requireAuth(req);
+      const parsed = z
+        .object({ ai_model: z.enum(opts.aiModels as [string, ...string[]]).nullable() })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success) throw httpError(400, z.prettifyError(parsed.error));
+
+      const current = await db
+        .from('preferences')
+        .select('settings')
+        .eq('user_id', userId)
+        .single();
+      if (current.error) throw current.error;
+      const settings = { ...current.data.settings };
+      if (parsed.data.ai_model) settings.ai_model = parsed.data.ai_model;
+      else delete settings.ai_model;
+
+      const { error } = await db.from('preferences').update({ settings }).eq('user_id', userId);
+      if (error) throw error;
+      return { ai_model: parsed.data.ai_model };
     },
   );
 }

@@ -19,6 +19,12 @@ declare module 'fastify' {
   }
 }
 
+/** For handlers behind `app.authenticate`. */
+export function requireAuth(req: FastifyRequest): AuthContext {
+  if (!req.auth) throw httpError(401, 'Unauthenticated');
+  return req.auth;
+}
+
 const noSession = { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false };
 
 /** Registers `app.authenticate`, a preHandler that verifies the Supabase access token. */

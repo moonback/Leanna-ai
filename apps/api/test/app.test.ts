@@ -1,20 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/env.js';
+import { httpError } from '../src/http.js';
 
 // Unit scope: Supabase is never reached by these routes.
-const env = loadEnv({
+const base = {
   NODE_ENV: 'test',
   SUPABASE_URL: 'http://127.0.0.1:1',
   SUPABASE_PUBLISHABLE_KEY: 'unused',
-});
+};
+const env = loadEnv(base);
 
 describe('api', () => {
   it('GET /health returns ok', async () => {
     const app = await buildApp(env);
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'ok', version: '0.2.0' });
+    expect(res.json()).toMatchObject({ status: 'ok', version: '0.3.0' });
   });
 
   it('exposes an OpenAPI document listing the routes', async () => {
@@ -51,5 +53,31 @@ describe('api', () => {
 
   it('rejects an invalid environment', () => {
     expect(() => loadEnv({ PORT: 'not-a-port' })).toThrow(/Invalid environment/);
+  });
+
+  it('hides unexpected error details but keeps intentional HTTP errors', async () => {
+    const app = await buildApp(env);
+    app.get('/boom', async () => {
+      throw Object.assign(new Error('relation "secret_table" does not exist'), { code: '42P01' });
+    });
+    app.get('/busy', async () => {
+      throw httpError(503, 'AI not configured');
+    });
+    const boom = await app.inject({ method: 'GET', url: '/boom' });
+    expect(boom.statusCode).toBe(500);
+    expect(boom.json()).toEqual({ error: 'Internal error' });
+    const busy = await app.inject({ method: 'GET', url: '/busy' });
+    expect(busy.statusCode).toBe(503);
+    expect(busy.json()).toEqual({ error: 'AI not configured' });
+  });
+
+  it('treats an empty GEMINI_API_KEY (copied from .env.example) as "no key"', () => {
+    expect(loadEnv({ ...base, GEMINI_API_KEY: '' }).GEMINI_API_KEY).toBeUndefined();
+  });
+
+  it('keeps the default AI model inside the allowlist', () => {
+    expect(() => loadEnv({ ...base, AI_MODELS: 'a,b', AI_DEFAULT_MODEL: 'c' })).toThrow(
+      /AI_DEFAULT_MODEL/,
+    );
   });
 });

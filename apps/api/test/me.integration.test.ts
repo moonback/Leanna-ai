@@ -4,22 +4,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/env.js';
+import { signUp } from './helpers.js';
 
 const env = loadEnv({ ...process.env, NODE_ENV: 'test' });
-
-async function signUp(displayName?: string) {
-  const sb = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false },
-  });
-  const email = `it-${randomUUID()}@example.test`;
-  const { data, error } = await sb.auth.signUp({
-    email,
-    password: `Pw-${randomUUID()}`,
-    options: { data: { display_name: displayName } },
-  });
-  if (error || !data.session) throw error ?? new Error('No session: are email confirmations on?');
-  return { email, auth: { authorization: `Bearer ${data.session.access_token}` } };
-}
 
 describe('/me (integration)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
@@ -28,7 +15,36 @@ describe('/me (integration)', () => {
 
   beforeAll(async () => {
     app = await buildApp(env);
-    [alice, bob] = await Promise.all([signUp('Alice'), signUp()]);
+    [alice, bob] = await Promise.all([signUp(env, 'Alice'), signUp(env)]);
+  });
+
+  it('stores an allowed AI model preference and rejects others', async () => {
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: '/me/preferences',
+      headers: alice.auth,
+      payload: { ai_model: 'gpt-x' },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const ok = await app.inject({
+      method: 'PATCH',
+      url: '/me/preferences',
+      headers: alice.auth,
+      payload: { ai_model: env.AI_MODELS.at(-1) },
+    });
+    expect(ok.statusCode).toBe(200);
+    const me = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
+    expect(me.json().preferences).toEqual({ ai_model: env.AI_MODELS.at(-1) });
+
+    await app.inject({
+      method: 'PATCH',
+      url: '/me/preferences',
+      headers: alice.auth,
+      payload: { ai_model: null },
+    });
+    const reset = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
+    expect(reset.json().preferences).toEqual({ ai_model: null });
   });
 
   it('rejects a forged token', async () => {

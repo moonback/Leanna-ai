@@ -1,11 +1,71 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { updateProfile, type Profile } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchAiConfig, updatePreferences, updateProfile, type Profile } from '@/lib/api';
 import { useMe } from '@/lib/useMe';
 import { Field, FormError, Input, Select, SubmitButton } from '@/components/Form';
 
 const ROLE_LABELS = { owner: 'Propriétaire', admin: 'Administrateur', member: 'Membre' } as const;
 const TIME_ZONES = Intl.supportedValuesOf('timeZone');
+
+/** "Configurer son IA": the model list comes from the server allowlist. */
+function AiSettings({ current }: { current: string | null }) {
+  const queryClient = useQueryClient();
+  const config = useQuery({
+    queryKey: ['ai-config'],
+    queryFn: ({ signal }) => fetchAiConfig(signal),
+  });
+  const mutation = useMutation({
+    mutationFn: updatePreferences,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+  });
+
+  return (
+    <section className="glass p-6" aria-labelledby="ai-title">
+      <h2 id="ai-title" className="mb-1 text-sm font-medium">
+        Intelligence artificielle
+      </h2>
+      <p className="mb-5 text-xs text-ink-faint">
+        Fournisseur : Google Gemini. Les clés restent sur le serveur.
+      </p>
+      {config.isPending && <p className="text-sm text-ink-muted">Chargement…</p>}
+      {config.isError && <FormError message="Impossible de charger la configuration IA." />}
+      {config.data && !config.data.configured && (
+        <p className="text-sm text-warning">
+          L’assistant n’est pas configuré sur ce serveur (clé Gemini absente).
+        </p>
+      )}
+      {config.data?.configured && (
+        <Field
+          id="ai_model"
+          label="Modèle"
+          hint="Les modèles proposés sont ceux autorisés par le serveur."
+        >
+          <Select
+            id="ai_model"
+            value={mutation.isPending ? (mutation.variables?.ai_model ?? '') : (current ?? '')}
+            disabled={mutation.isPending}
+            onChange={(e) => mutation.mutate({ ai_model: e.target.value || null })}
+          >
+            <option value="">Par défaut ({config.data.default_model})</option>
+            {config.data.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <div className="mt-3">
+        <FormError message={mutation.error?.message ?? null} />
+        {mutation.isSuccess && (
+          <p role="status" className="text-sm text-success">
+            Préférence IA enregistrée.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function ProfileForm({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient();
@@ -100,6 +160,8 @@ export function SettingsPage() {
             <p className="mb-5 text-xs text-ink-faint">{me.data.email}</p>
             <ProfileForm profile={me.data.profile} />
           </section>
+
+          <AiSettings current={me.data.preferences.ai_model} />
 
           <section className="glass p-6" aria-labelledby="ws-title">
             <h2 id="ws-title" className="mb-3 text-sm font-medium">

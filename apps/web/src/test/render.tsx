@@ -25,14 +25,37 @@ export const ME = {
   id: 'user-1',
   email: 'alice@example.test',
   profile: { display_name: 'Alice', avatar_url: null, locale: 'fr', timezone: 'Europe/Paris' },
+  preferences: { ai_model: null },
   workspaces: [{ id: 'ws-1', name: 'Espace personnel', role: 'owner' }],
 };
+
+export const AI_CONFIG = {
+  configured: true,
+  models: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'],
+  default_model: 'gemini-3.6-flash',
+};
+
+/** An SSE response whose chunks deliberately split events mid-way, like a real network. */
+export function sseResponse(chunks: string[]) {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(encoder.encode(c));
+      controller.close();
+    },
+  });
+  return Promise.resolve(
+    new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+  );
+}
 
 /** Routes fetch calls to a fake API; override individual endpoints per test. */
 export function mockApi(overrides: Record<string, () => Promise<Response>> = {}) {
   const handlers: Record<string, () => Promise<Response>> = {
-    'GET /health': () => json({ status: 'ok', version: '0.2.0', uptimeSeconds: 1 }),
+    'GET /health': () => json({ status: 'ok', version: '0.3.0', uptimeSeconds: 1 }),
     'GET /me': () => json(ME),
+    'GET /ai/config': () => json(AI_CONFIG),
+    'GET /conversations': () => json([]),
     ...overrides,
   };
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
