@@ -109,7 +109,7 @@ update public.missions set status = 'running' where id = pg_temp.mission('Rome')
 update public.mission_steps set status = 'running', attempt = 1, lease_until = now() + interval '1 minute'
   where mission_id = pg_temp.mission('Rome') and position = 1;
 -- a crash, then another worker reclaims the step with a new attempt
-update public.mission_steps set attempt = 2 where mission_id = pg_temp.mission('Rome') and position = 1;
+update public.mission_steps set attempt = 2, failures = 1 where mission_id = pg_temp.mission('Rome') and position = 1;
 update public.mission_steps set status = 'done', output = 'Vols trouvés', finished_at = now()
   where mission_id = pg_temp.mission('Rome') and position = 1 and attempt = 2;
 select is((select output from public.mission_steps where mission_id = pg_temp.mission('Rome') and position = 1), 'Vols trouvés',
