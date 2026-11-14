@@ -21,15 +21,17 @@ grant select on ids to authenticated, leana_worker;
 grant usage on schema extensions to leana_worker;
 grant execute on all functions in schema extensions to leana_worker;
 
+-- Lookups are scoped to Alice: other tests may have left homonyms in the database.
 create function pg_temp.agent(n text) returns uuid language sql as $$
-  select id from public.agents where name = n $$;
+  select id from public.agents where name = n and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6' $$;
 create function pg_temp.step(n text) returns uuid language sql as $$
   select s.id from public.mission_steps s join public.missions m on m.id = s.mission_id
-  where m.title = n $$;
+  where m.title = n and m.user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6' $$;
 create function pg_temp.mission(n text) returns uuid language sql as $$
-  select id from public.missions where title = n $$;
+  select id from public.missions where title = n and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6' $$;
 create function pg_temp.call(t text) returns uuid language sql as $$
-  select id from public.tool_calls where tool = t order by created_at desc limit 1 $$;
+  select id from public.tool_calls where tool = t and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6'
+  order by created_at desc limit 1 $$;
 grant execute on all functions in schema pg_temp to authenticated, leana_worker;
 
 -- Bob's data (fixtures).
@@ -38,7 +40,8 @@ insert into public.agents (workspace_id, user_id, name, tools)
 insert into public.memories (workspace_id, user_id, content)
   select bob_ws, 'bbbbbbbb-0000-0000-0000-0000000000b6'::uuid, 'Bob aime les pizzas' from ids;
 -- Alice cannot see Bob's agent: its id is captured here, as if guessed or leaked.
-create temp table bob on commit drop as select id as agent from public.agents where name = 'Agent de Bob';
+create temp table bob on commit drop as select id as agent from public.agents
+  where name = 'Agent de Bob' and user_id = 'bbbbbbbb-0000-0000-0000-0000000000b6';
 grant select on bob to authenticated;
 
 -- ---- Alice builds agents
@@ -74,11 +77,13 @@ reset role;
 insert into public.missions (workspace_id, user_id, goal, title, agent_id, status)
   select alice_ws, 'aaaaaaaa-0000-0000-0000-0000000000a6'::uuid, 'But', n, pg_temp.agent(n), 'planning'
   from ids, unnest(array['Lecteur', 'Scribe', 'Autonome']) n;
-update public.missions set status = 'awaiting_approval' where title in ('Lecteur', 'Scribe', 'Autonome');
-update public.missions set status = 'running' where title in ('Lecteur', 'Scribe', 'Autonome');
+update public.missions set status = 'awaiting_approval'
+  where title in ('Lecteur', 'Scribe', 'Autonome') and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6';
+update public.missions set status = 'running'
+  where title in ('Lecteur', 'Scribe', 'Autonome') and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6';
 insert into public.mission_steps (mission_id, user_id, position, title, instruction, status, attempt)
   select id, user_id, 1, 'Étape', 'Faire', 'running', 1 from public.missions
-  where title in ('Lecteur', 'Scribe', 'Autonome');
+  where title in ('Lecteur', 'Scribe', 'Autonome') and user_id = 'aaaaaaaa-0000-0000-0000-0000000000a6';
 
 set local role authenticated;
 select set_config('request.jwt.claims',

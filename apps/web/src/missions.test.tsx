@@ -16,6 +16,9 @@ const mission = (extra = {}) => ({
   created_at: '2026-11-14T10:00:00Z',
   updated_at: '2026-11-14T10:00:00Z',
   finished_at: null,
+  agent_id: null,
+  agent: null,
+  tool_calls: [],
   ...extra,
 });
 const step = (position: number, title: string, extra = {}) => ({
@@ -66,6 +69,7 @@ describe('missions', () => {
     expect(await screen.findByText('LEANA prépare un plan…')).toBeInTheDocument();
     expect(JSON.parse(String(callsTo(spy, 'POST', '/missions')[0]![1]!.body))).toEqual({
       goal: 'Organiser un week-end à Rome',
+      agent_id: null,
     });
   });
 

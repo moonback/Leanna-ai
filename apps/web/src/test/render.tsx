@@ -88,6 +88,8 @@ export function mockApi(overrides: Record<string, () => Promise<Response>> = {})
     'GET /conversations': () => json([]),
     'GET /missions/config': () => json({ configured: true }),
     'GET /missions': () => json([]),
+    'GET /agents': () => json([]),
+    'GET /tools': () => json([]),
     'GET /approvals': () => json([]),
     'GET /activity': () => json([]),
     'GET /notifications': () => json({ items: [], unread: 0 }),

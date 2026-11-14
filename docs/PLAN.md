@@ -81,3 +81,15 @@
 - [ ] **Preuve réelle** : mission de bout en bout avec un vrai fournisseur IA (aucune clé disponible)
 - [ ] Notifications en temps réel (Supabase Realtime ou SSE) au lieu du rafraîchissement périodique
 - [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)
+
+## Checklist Phase 6
+
+- [x] Migration `agents` : catalogue `tools`, `agents` (outils validés, écriture autonome optionnelle), `tool_calls`, validations de type `tool`. Une **barrière de permissions en trigger** contrôle chaque appel : outil autorisé à cet instant, validation pour `write`, toujours pour `sensitive`, appel lié au propriétaire et à une étape en cours. Fonctions `private.tool_*` liées à un appel en cours
+- [x] **Preuve** : pgTAP `agents.test.sql` (36 assertions : isolation, outils inconnus, outil hors liste, usurpation d'agent, validation des écritures, `auto_write`, `sensitive`, révocation immédiate, accès aux données limité au propriétaire, appels terminés inertes)
+- [x] Registre typé (5 outils), protocole JSON neutre vis-à-vis du fournisseur, calculatrice sans `eval`
+- [x] Moteur : boucle d'outils par étape, refus et entrées invalides enregistrés et signalés au modèle, pause et reprise sur validation, refus d'outil sans annulation, incidents distincts des pauses
+- [x] **Preuve** : tests d'intégration (registre identique au catalogue, données du propriétaire seulement, refus, pause et validation, refus d'outil, `auto_write`, révocation en cours de mission) + tests unitaires
+- [x] Web : Agent Studio (création, outils et risques, écriture autonome, édition, suppression), choix de l'agent à la création d'une mission, appels d'outils et validations d'outils dans le détail
+- [x] E2E Playwright Agent Studio (desktop + mobile, stack réelle)
+- [ ] **Preuve réelle** : agent avec un vrai fournisseur IA (aucune clé disponible)
+- [ ] Agents dans l'Assistant (aujourd'hui : missions uniquement)
