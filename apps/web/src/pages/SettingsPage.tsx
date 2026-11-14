@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAiConfig,
@@ -124,6 +125,52 @@ function AiSettings({ current }: { current: AiPreference }) {
   );
 }
 
+/** Memory switch: off = no recall in replies and nothing new learned. */
+function MemorySettings({ enabled }: { enabled: boolean }) {
+  const queryClient = useQueryClient();
+  // Optimistic: the box follows the click at once and is rolled back if saving fails.
+  const [on, setOn] = useState(enabled);
+  const mutation = useMutation({
+    mutationFn: (memory_enabled: boolean) => updatePreferences({ memory_enabled }),
+    onError: (_, value) => setOn(!value),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+  });
+
+  return (
+    <section className="glass p-6" aria-labelledby="memory-title">
+      <h2 id="memory-title" className="mb-1 text-sm font-medium">
+        Mémoire
+      </h2>
+      <p className="mb-4 text-xs text-ink-faint">
+        LEANA retient les informations durables que vous partagez (métier, préférences, objectifs…)
+        et s’en sert dans ses réponses. Consultez-les et corrigez-les dans{' '}
+        <Link to="/memory" className="text-cyan hover:underline">
+          Mémoire
+        </Link>
+        .
+      </p>
+      <label className="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={mutation.isPending}
+          onChange={(e) => {
+            setOn(e.target.checked);
+            mutation.mutate(e.target.checked);
+          }}
+          className="size-4 accent-cyan"
+        />
+        Activer la mémoire
+      </label>
+      <p className="mt-2 text-xs text-ink-faint">
+        Désactivée, LEANA n’apprend plus rien et n’utilise plus vos souvenirs ; ceux déjà
+        enregistrés sont conservés jusqu’à ce que vous les supprimiez.
+      </p>
+      <FormError message={mutation.error?.message ?? null} />
+    </section>
+  );
+}
+
 function ProfileForm({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient();
   const [saved, setSaved] = useState(false);
@@ -218,7 +265,11 @@ export function SettingsPage() {
             <ProfileForm profile={me.data.profile} />
           </section>
 
-          <AiSettings key={JSON.stringify(me.data.preferences)} current={me.data.preferences} />
+          <AiSettings
+            key={`${me.data.preferences.ai_provider}/${me.data.preferences.ai_model}`}
+            current={me.data.preferences}
+          />
+          <MemorySettings enabled={me.data.preferences.memory_enabled} />
 
           <section className="glass p-6" aria-labelledby="ws-title">
             <h2 id="ws-title" className="mb-3 text-sm font-medium">

@@ -21,7 +21,7 @@ describe('/me (integration)', () => {
     [alice, bob] = await Promise.all([signUp(env, 'Alice'), signUp(env)]);
   });
 
-  const setPrefs = (payload: Record<string, string | null>) =>
+  const setPrefs = (payload: Record<string, string | boolean | null>) =>
     app.inject({ method: 'PATCH', url: '/me/preferences', headers: alice.auth, payload });
 
   it.each([
@@ -38,11 +38,31 @@ describe('/me (integration)', () => {
     const model = env.GEMINI_MODELS.at(-1)!;
     expect((await setPrefs({ ai_provider: 'gemini', ai_model: model })).statusCode).toBe(200);
     const me = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
-    expect(me.json().preferences).toEqual({ ai_provider: 'gemini', ai_model: model });
+    expect(me.json().preferences).toEqual({
+      ai_provider: 'gemini',
+      ai_model: model,
+      memory_enabled: true,
+    });
 
     expect((await setPrefs({ ai_provider: null, ai_model: null })).statusCode).toBe(200);
     const reset = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
-    expect(reset.json().preferences).toEqual({ ai_provider: null, ai_model: null });
+    expect(reset.json().preferences).toEqual({
+      ai_provider: null,
+      ai_model: null,
+      memory_enabled: true,
+    });
+
+    // The memory switch is independent of the AI choice.
+    expect((await setPrefs({ memory_enabled: false })).statusCode).toBe(200);
+    const off = await app.inject({ method: 'GET', url: '/me', headers: alice.auth });
+    expect(off.json().preferences).toEqual({
+      ai_provider: null,
+      ai_model: null,
+      memory_enabled: false,
+    });
+    expect((await setPrefs({ memory_enabled: true })).statusCode).toBe(200);
+    expect((await setPrefs({ ai_provider: 'gemini' })).statusCode).toBe(400);
+    expect((await setPrefs({})).statusCode).toBe(400);
   });
 
   it('rejects a forged token', async () => {

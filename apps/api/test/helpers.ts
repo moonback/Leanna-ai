@@ -30,3 +30,56 @@ export function parseSse(payload: string): SseEvent[] {
       data: JSON.parse(lines.find((l) => l.startsWith('data: '))!.slice(6)),
     }));
 }
+
+/**
+ * Deterministic test embedder: each word maps to a concept (synonyms share one), and
+ * the vector is the normalized bag of concepts. "manger" and "pizza" are therefore close
+ * although they share no word, which lets tests tell semantic recall from lexical recall.
+ */
+const CONCEPTS: Record<string, string> = {
+  pizza: 'food',
+  pizzas: 'food',
+  manger: 'food',
+  diner: 'food',
+  restaurant: 'food',
+  paris: 'city',
+  lyon: 'city',
+  habite: 'city',
+  ville: 'city',
+  vis: 'city',
+  courir: 'sport',
+  marathon: 'sport',
+  sport: 'sport',
+  acme: 'work',
+  travaille: 'work',
+  boulot: 'work',
+};
+const conceptIndex = new Map([...new Set(Object.values(CONCEPTS))].map((c, i) => [c, i]));
+
+export function conceptVector(text: string): number[] {
+  const v = new Array<number>(768).fill(0);
+  v[767] = 0.05; // never a zero vector (cosine distance would be undefined)
+  for (const word of text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/\W+/)) {
+    const concept = CONCEPTS[word];
+    if (concept) v[conceptIndex.get(concept)!] = 1;
+  }
+  return v;
+}
+
+export function fakeEmbedder(model = 'test-embedding') {
+  const calls: { texts: string[]; kind: string }[] = [];
+  let failing = false;
+  return {
+    calls,
+    fail: (on: boolean) => (failing = on),
+    embedder: {
+      provider: 'gemini' as const,
+      model,
+      async embed(texts: string[], kind: 'document' | 'query') {
+        calls.push({ texts, kind });
+        if (failing) throw new Error('embedding outage');
+        return { vectors: texts.map(conceptVector), inputTokens: null };
+      },
+    },
+  };
+}

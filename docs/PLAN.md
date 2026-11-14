@@ -52,3 +52,18 @@
 - [ ] **Preuve OpenRouter réelle** : E2E prêt, ignoré tant que `OPENROUTER_API_KEY` est absente
 - [ ] Bascule automatique vers un modèle de secours quand le modèle choisi est surchargé
 - [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)
+
+## Checklist Phase 4
+
+- [x] Migration `memory` : pgvector (768 d), table `memories` (RLS, `GRANT` par colonne, références vérifiées contre l'appelant), recherche plein texte française sans accents, résumés de conversation, `ai_usage.kind`
+- [x] Rappel hybride en SQL (`match_memories`) : plein texte + cosinus, fusion RRF, seuil de distance, vecteurs comparés par modèle
+- [x] Contradictions : `update` remplace (ancien `superseded`, restaurable), `forget` archive ; jamais rappelés
+- [x] **Preuve** : pgTAP `memory.test.sql` (28 assertions : isolation, contraintes, rappel lexical/sémantique/fusionné, contradictions, résumés) — `supabase db advisors` sans alerte
+- [x] Embeddings derrière une interface : Gemini (`RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`) et OpenRouter ; repli lexical en cas d'échec ; réindexation
+- [x] Extraction en un appel, en parallèle de la réponse ; analyse défensive (ids connus seulement, doublons, plafond)
+- [x] Context Engine : budgets, souvenirs comme données, résumé glissant en tâche de fond, coupe de sécurité
+- [x] **Preuve** : tests unitaires (Context Engine, extraction, adaptateurs d'embeddings) + intégration contre Supabase local (12 scénarios de bout en bout)
+- [x] Web : page Mémoire (ajout, recherche, correction, historique, restauration, suppression, tout effacer), interrupteur dans Paramètres, note « Retenu : … » dans le chat
+- [x] E2E Playwright Mémoire (desktop + mobile, stack réelle, sans IA)
+- [ ] **Calibrage réel** : seuil `MEMORY_MAX_DISTANCE` et qualité d'extraction à mesurer avec une clé Gemini / OpenRouter
+- [ ] `packages/shared` toujours reporté (contrats dupliqués en types web)

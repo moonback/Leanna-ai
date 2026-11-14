@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MessageSquarePlus, Send, Sparkles, Square, Trash2 } from 'lucide-react';
+import { ArrowLeft, Brain, MessageSquarePlus, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 import {
   ApiError,
   createConversation,
@@ -11,6 +11,7 @@ import {
   fetchMessages,
   streamMessage,
   type ChatMessage,
+  type MemoryChanges,
 } from '@/lib/api';
 import { FormError } from '@/components/Form';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,38 @@ function Bubble({ role, content, status, errorCode, model, streaming }: BubblePr
           </p>
         )}
         {model && <p className="mt-1.5 text-[10px] text-ink-faint">{model}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** What the assistant just learned from the user's message, with a link to review it. */
+function MemoryNote({ changes }: { changes: MemoryChanges }) {
+  const lines = [
+    ...changes.added.map((m) => `Retenu : ${m.content}`),
+    ...changes.updated.map((u) => `Mis à jour : ${u.memory.content}`),
+    ...(changes.forgotten.length
+      ? [`Oublié : ${changes.forgotten.length} souvenir${changes.forgotten.length > 1 ? 's' : ''}`]
+      : []),
+  ];
+  if (!lines.length) return null;
+  return (
+    <div
+      role="status"
+      className="mx-auto flex max-w-[85%] items-start gap-2 rounded-xl border border-cyan/20 bg-cyan/5 px-3 py-2 text-xs text-ink-muted"
+    >
+      <Brain className="mt-0.5 size-3.5 shrink-0 text-cyan" aria-hidden />
+      <div className="min-w-0">
+        <ul>
+          {lines.map((line, i) => (
+            <li key={i} className="break-words">
+              {line}
+            </li>
+          ))}
+        </ul>
+        <Link to="/memory" className="text-cyan hover:underline">
+          Gérer la mémoire
+        </Link>
       </div>
     </div>
   );
@@ -174,6 +207,13 @@ function Thread({ conversationId }: { conversationId?: string }) {
   const [draft, setDraft] = useState('');
   const [live, setLive] = useState<{ user: string; answer: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Kept in the query cache, not in state: a first message remounts the thread under its new id.
+  const learned = useQuery<MemoryChanges | null>({
+    queryKey: ['memory-note', conversationId],
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  }).data;
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -198,6 +238,7 @@ function Thread({ conversationId }: { conversationId?: string }) {
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    queryClient.setQueryData(['memory-note', id], null);
     setLive({ user: content, answer: '' });
     setDraft('');
     try {
@@ -208,6 +249,9 @@ function Thread({ conversationId }: { conversationId?: string }) {
           if (event.event === 'delta') {
             const { text } = event.data as { text: string };
             setLive((l) => l && { ...l, answer: l.answer + text });
+          } else if (event.event === 'memory') {
+            queryClient.setQueryData(['memory-note', id], event.data as MemoryChanges);
+            void queryClient.invalidateQueries({ queryKey: ['memories'] });
           }
         },
         ctrl.signal,
@@ -278,9 +322,9 @@ function Thread({ conversationId }: { conversationId?: string }) {
               <Sparkles className="mx-auto mb-3 size-8 text-cyan" aria-hidden />
               <h1 className="font-display text-xl font-semibold">Que puis-je faire pour vous ?</h1>
               <p className="mt-2 text-sm text-ink-muted">
-                Posez une question ou décrivez ce dont vous avez besoin. LEANA ne dispose pas encore
-                d’outils ni de mémoire à long terme : elle vous le dira plutôt que de faire
-                semblant.
+                Posez une question ou décrivez ce dont vous avez besoin. LEANA retient ce qui compte
+                pour vous (page Mémoire) mais ne dispose pas encore d’outils : elle vous le dira
+                plutôt que de faire semblant.
               </p>
             </div>
           </div>
@@ -316,6 +360,7 @@ function Thread({ conversationId }: { conversationId?: string }) {
             <Bubble role="assistant" content={live.answer} streaming />
           </>
         )}
+        {learned && <MemoryNote changes={learned} />}
       </div>
 
       <form onSubmit={onSubmit} className="border-t border-white/5 p-3">

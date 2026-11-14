@@ -25,7 +25,7 @@ export const ME = {
   id: 'user-1',
   email: 'alice@example.test',
   profile: { display_name: 'Alice', avatar_url: null, locale: 'fr', timezone: 'Europe/Paris' },
-  preferences: { ai_provider: null, ai_model: null },
+  preferences: { ai_provider: null, ai_model: null, memory_enabled: true },
   workspaces: [{ id: 'ws-1', name: 'Espace personnel', role: 'owner' }],
 };
 
@@ -48,6 +48,7 @@ const OPENROUTER = {
 export const AI_CONFIG = {
   configured: true,
   default: { provider: 'gemini', model: 'gemini-3.6-flash' },
+  embeddings: { provider: 'gemini', model: 'gemini-embedding-001' },
   providers: [GEMINI, OPENROUTER],
 };
 export const AI_CONFIG_BOTH = {
@@ -57,6 +58,7 @@ export const AI_CONFIG_BOTH = {
 export const AI_CONFIG_NONE = {
   configured: false,
   default: null,
+  embeddings: null,
   providers: [
     { ...GEMINI, configured: false },
     { ...OPENROUTER, configured: false },
@@ -80,7 +82,7 @@ export function sseResponse(chunks: string[]) {
 /** Routes fetch calls to a fake API; override individual endpoints per test. */
 export function mockApi(overrides: Record<string, () => Promise<Response>> = {}) {
   const handlers: Record<string, () => Promise<Response>> = {
-    'GET /health': () => json({ status: 'ok', version: '0.3.0', uptimeSeconds: 1 }),
+    'GET /health': () => json({ status: 'ok', version: '0.4.0', uptimeSeconds: 1 }),
     'GET /me': () => json(ME),
     'GET /ai/config': () => json(AI_CONFIG),
     'GET /conversations': () => json([]),

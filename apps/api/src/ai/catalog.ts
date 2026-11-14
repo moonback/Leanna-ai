@@ -1,3 +1,4 @@
+import type { Embedder } from './embeddings.js';
 import type { AiChoice, Gateway } from './gateway.js';
 import { PROVIDER_IDS, type ProviderId } from './types.js';
 
@@ -8,10 +9,16 @@ export type AiCatalog = Record<
 >;
 
 /** What /ai/config returns: availability per provider, never any key. */
-export function describeAi(catalog: AiCatalog, gateway: Gateway | null) {
+export function describeAi(
+  catalog: AiCatalog,
+  gateway: Gateway | null,
+  embedder: Embedder | null = null,
+) {
   return {
     configured: gateway !== null,
     default: gateway?.defaultChoice ?? null,
+    // null = memory recall is lexical only (no embeddings provider configured).
+    embeddings: embedder && { provider: embedder.provider, model: embedder.model },
     providers: PROVIDER_IDS.map((id) => ({
       id,
       label: catalog[id].label,

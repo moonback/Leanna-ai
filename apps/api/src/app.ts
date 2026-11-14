@@ -11,16 +11,49 @@ import { geminiProvider } from './ai/gemini.js';
 import { openRouterProvider } from './ai/openrouter.js';
 import type { AiCatalog } from './ai/catalog.js';
 import type { AiProvider, ProviderId } from './ai/types.js';
+import { geminiEmbedder, openRouterEmbedder, type Embedder } from './ai/embeddings.js';
+import { createBackground } from './background.js';
+import { createMemoryService } from './memory/service.js';
+import { memoryRoutes } from './modules/memories.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Work that outlives a response; `app.close()` waits for it. */
+    background: ReturnType<typeof createBackground>;
+  }
+}
+
+/** Embeddings vendor: explicit choice, or the first one with a key ('auto'). */
+function embedderFor(env: Env): Embedder | null {
+  const choice =
+    env.EMBEDDINGS_PROVIDER !== 'auto'
+      ? env.EMBEDDINGS_PROVIDER
+      : env.GEMINI_API_KEY
+        ? 'gemini'
+        : env.OPENROUTER_API_KEY
+          ? 'openrouter'
+          : 'none';
+  if (choice === 'gemini' && env.GEMINI_API_KEY) {
+    return geminiEmbedder(env.GEMINI_API_KEY, env.GEMINI_EMBEDDING_MODEL);
+  }
+  if (choice === 'openrouter' && env.OPENROUTER_API_KEY) {
+    return openRouterEmbedder(env.OPENROUTER_API_KEY, env.OPENROUTER_EMBEDDING_MODEL);
+  }
+  return null;
+}
 
 const startedAt = Date.now();
 
 /**
- * `aiProviders` is injected by tests only (it replaces key-based providers entirely);
- * in production each vendor is enabled by its API key.
+ * `aiProviders` and `embedder` are injected by tests only (they replace key-based vendors
+ * entirely); in production each vendor is enabled by its API key.
  */
 export async function buildApp(
   env: Env,
-  deps: { aiProviders?: Partial<Record<ProviderId, AiProvider>> } = {},
+  deps: {
+    aiProviders?: Partial<Record<ProviderId, AiProvider>>;
+    embedder?: Embedder | null;
+  } = {},
 ) {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' });
 
@@ -57,6 +90,17 @@ export async function buildApp(
       })
     : null;
 
+  const background = createBackground(app.log);
+  app.decorate('background', background);
+  app.addHook('onClose', () => background.settle());
+  const memory = createMemoryService({
+    gateway,
+    embedder: deps.embedder !== undefined ? deps.embedder : embedderFor(env),
+    maxDistance: env.MEMORY_MAX_DISTANCE,
+    recallCount: env.MEMORY_RECALL_COUNT,
+    log: app.log,
+  });
+
   // Never leak internal error details (SQL, upstream messages) to clients.
   app.setErrorHandler((err: Error & { statusCode?: number; expose?: boolean }, req, reply) => {
     const status = err.statusCode ?? 500;
@@ -73,7 +117,7 @@ export async function buildApp(
 
   await app.register(swagger, {
     openapi: {
-      info: { title: 'LEANA AI API', version: '0.3.0' },
+      info: { title: 'LEANA AI API', version: '0.4.0' },
       components: {
         securitySchemes: { bearer: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
       },
@@ -104,15 +148,18 @@ export async function buildApp(
     },
     async () => ({
       status: 'ok' as const,
-      version: '0.3.0',
+      version: '0.4.0',
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     }),
   );
 
   await app.register(meRoutes, { gateway });
+  await app.register(memoryRoutes, { memory });
   await app.register(conversationRoutes, {
     gateway,
     catalog,
+    memory,
+    background,
     maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
     dailyTokenLimit: env.AI_DAILY_TOKEN_LIMIT,
   });

@@ -126,5 +126,16 @@ export function createGateway(opts: GatewayOptions) {
         }
       }
     },
+
+    /** Non-streamed call for background work (memory extraction, summaries). */
+    async complete(req: GatewayRequest) {
+      let text = '';
+      let usage: { inputTokens: number; outputTokens: number } | null = null;
+      for await (const event of this.stream(req)) {
+        if (event.type === 'text') text += event.text;
+        else usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+      }
+      return { text, usage };
+    },
   };
 }
