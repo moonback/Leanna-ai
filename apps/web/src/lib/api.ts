@@ -45,7 +45,7 @@ export type Me = {
   id: string;
   email: string | null;
   profile: Profile;
-  preferences: AiPreference;
+  preferences: AiPreference & { memory_enabled: boolean };
   workspaces: { id: string; name: string; role: 'owner' | 'admin' | 'member' }[];
 };
 export type ProviderId = 'gemini' | 'openrouter';
@@ -61,6 +61,8 @@ export type AiProviderInfo = {
 export type AiConfig = {
   configured: boolean;
   default: { provider: ProviderId; model: string } | null;
+  /** null = memory search is keyword-only (no embeddings provider on the server). */
+  embeddings: { provider: ProviderId; model: string } | null;
   providers: AiProviderInfo[];
 };
 export type Conversation = {
@@ -80,12 +82,35 @@ export type ChatMessage = {
   created_at: string;
 };
 
+export type MemoryKind = 'fact' | 'preference' | 'goal' | 'relationship';
+export type Memory = {
+  id: string;
+  kind: MemoryKind;
+  content: string;
+  importance: number;
+  source: 'manual' | 'conversation';
+  source_message_id: string | null;
+  status: 'active' | 'superseded';
+  superseded_by: string | null;
+  /** Has a vector of the server's current embeddings model (semantic search). */
+  indexed: boolean;
+  created_at: string;
+  updated_at: string;
+  score?: number;
+};
+/** The `memory` SSE event: what the assistant just learned from the user's message. */
+export type MemoryChanges = {
+  added: Memory[];
+  updated: { previous_id: string; memory: Memory }[];
+  forgotten: string[];
+};
+
 export const fetchHealth = (signal?: AbortSignal) => apiFetch<Health>('/health', { signal });
 export const fetchMe = (signal?: AbortSignal) => apiFetch<Me>('/me', { signal });
 export const updateProfile = (
   patch: Partial<Pick<Profile, 'display_name' | 'locale' | 'timezone'>>,
 ) => apiFetch<Profile>('/me/profile', { method: 'PATCH', body: JSON.stringify(patch) });
-export const updatePreferences = (prefs: AiPreference) =>
+export const updatePreferences = (prefs: AiPreference | { memory_enabled: boolean }) =>
   apiFetch('/me/preferences', { method: 'PATCH', body: JSON.stringify(prefs) });
 
 export const fetchAiConfig = (signal?: AbortSignal) => apiFetch<AiConfig>('/ai/config', { signal });
@@ -97,6 +122,36 @@ export const deleteConversation = (id: string) =>
   apiFetch<void>(`/conversations/${id}`, { method: 'DELETE' });
 export const fetchMessages = (id: string, signal?: AbortSignal) =>
   apiFetch<ChatMessage[]>(`/conversations/${id}/messages`, { signal });
+
+export const fetchMemories = (
+  params: { status?: Memory['status']; q?: string },
+  signal?: AbortSignal,
+) => {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.q) query.set('q', params.q);
+  const qs = query.toString();
+  return apiFetch<Memory[]>(`/memories${qs ? `?${qs}` : ''}`, { signal });
+};
+export const createMemory = (body: { content: string; kind: MemoryKind }) =>
+  apiFetch<Memory>('/memories', { method: 'POST', body: JSON.stringify(body) });
+export const updateMemory = (
+  id: string,
+  patch: Partial<Pick<Memory, 'content' | 'kind' | 'importance'>>,
+) => apiFetch<Memory>(`/memories/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const restoreMemory = (id: string) =>
+  apiFetch<Memory>(`/memories/${id}/restore`, { method: 'POST', body: '{}' });
+export const deleteMemory = (id: string) => apiFetch<void>(`/memories/${id}`, { method: 'DELETE' });
+export const clearMemories = () =>
+  apiFetch<{ deleted: number }>('/memories', {
+    method: 'DELETE',
+    body: JSON.stringify({ confirm: true }),
+  });
+export const reindexMemories = () =>
+  apiFetch<{ indexed: number; remaining: number }>('/memories/reindex', {
+    method: 'POST',
+    body: '{}',
+  });
 
 /** Sends a message and reports each Server-Sent Event as it arrives. */
 export async function streamMessage(

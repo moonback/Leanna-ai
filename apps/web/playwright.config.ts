@@ -1,7 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // Uses the system Chrome so no browser download is needed; override with PW_CHANNEL (e.g. msedge).
-const channel = process.env.PW_CHANNEL ?? 'chrome';
+// PW_EXECUTABLE_PATH instead points at a specific Chromium binary (CI or cloud sandboxes).
+const executablePath = process.env.PW_EXECUTABLE_PATH;
+const channel = executablePath ? undefined : (process.env.PW_CHANNEL ?? 'chrome');
+const browser = { channel, launchOptions: { executablePath } };
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,8 +13,8 @@ export default defineConfig({
   workers: 1,
   use: { baseURL: 'http://localhost:4173' },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], channel } },
-    { name: 'mobile', use: { ...devices['Pixel 7'], channel } },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], ...browser } },
+    { name: 'mobile', use: { ...devices['Pixel 7'], ...browser } },
   ],
   webServer: [
     // No watch mode and no reuse: always test the current code, and leave no orphan process.

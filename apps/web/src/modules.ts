@@ -31,7 +31,7 @@ export const MODULES: AppModule[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, phase: null },
   { label: 'Assistant', path: '/assistant', icon: MessageSquare, phase: null },
   { label: 'Missions', path: '/missions', icon: Rocket, phase: 5 },
-  { label: 'Mémoire', path: '/memory', icon: Brain, phase: 4 },
+  { label: 'Mémoire', path: '/memory', icon: Brain, phase: null },
   { label: 'Agent Studio', path: '/agents', icon: Bot, phase: 6 },
   { label: 'Tâches', path: '/tasks', icon: CheckSquare, phase: 7 },
   { label: 'Projets', path: '/projects', icon: FolderKanban, phase: 7 },
